@@ -1,12 +1,33 @@
 #!/bin/sh
-case $1 in
-r*)
 FQDN=cpli.dev
-DIR=$(dirname $0)
-rsync -r "$DIR"/* $FQDN:~/cfg/
-ssh $FQDN 'cd cfg; ./mk'
+DIR=$(dirname "$0")
+case $1 in
+populate)
+ssh $FQDN -- run0 su <<EOF
+[ -d /run/fog ] && rm -r /run/fog
+mkdir -p /run/fog
+chown cpli:wheel /run/fog
+EOF
+rsync -r "$DIR"/* $FQDN:/run/fog
 ;;
-*)
-run0 nixos-rebuild switch -f default.nix
+dry-run) "$0" populate
+ssh $FQDN -- nixos-rebuild dry-run -f /run/fog/default.nix;;
+deploy) "$0" populate
+ssh $FQDN -- run0 /run/fog/fog "$@" ;;
+''|--) nixos-rebuild switch -f /run/fog/default.nix ;;
+pin)
+[ ! $# -eq 2 ] && { echo "$0"' pin <repo> <branch>' >&2; exit 1; }
+repo=$1
+branch=$2
+ref=$(git ls-remote $repo "$branch" | awk 'NR==1{print $1}')
+set -- --name source --unpack --print-path "$repo"/archive/"$ref".tar.gz
+set -- $(ssh $FQDN nix-prefetch-url "$@")
+cat <<EOF
+{
+	"ref": "$ref",
+	"sha256": "$1",
+	"store-path": "$2",
+}
+EOF
 ;;
 esac

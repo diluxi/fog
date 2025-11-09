@@ -17,6 +17,7 @@ let
 in import (pkgs + "/nixos/lib/eval-config.nix") {
 	modules = [
 		"${disko}/module.nix"
+		./crypt.nix
 		./users
 		./lemma
 	];

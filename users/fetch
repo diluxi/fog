@@ -1,0 +1,11 @@
+#!/bin/sh
+
+mkdir -p ssh
+cd ssh
+curl -s ezri.pub | jq -R '[inputs]' >ezri.json
+find . -name '*.json' -exec \
+	jq -n --arg filename '{}' '
+  	($filename | sub("\\.json$"; "") | sub(".*/"; "")) as $name |
+  	{($name): (input)}
+  ' '{}' \;\
+	| jq -n 'reduce inputs as $item ({}; . + $item)' > ../users.json

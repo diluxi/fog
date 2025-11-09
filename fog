@@ -1,0 +1,12 @@
+#!/bin/sh
+case $1 in
+r*)
+FQDN=cpli.dev
+DIR=$(dirname $0)
+rsync -r "$DIR"/* $FQDN:~/cfg/
+ssh $FQDN 'cd cfg; ./mk'
+;;
+*)
+run0 nixos-rebuild switch -f default.nix
+;;
+esac

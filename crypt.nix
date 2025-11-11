@@ -59,7 +59,7 @@
 
   chownSecret = secret: with secret; ''
 		_true_path="${mnt}/$_crypt_generation/${name}"
-    chown ${owner}:${group} "$_true_path"
+    chown ${user}:${group} "$_true_path"
   '';
 
   chownSecrets = builtins.concatStringsSep "\n" (
@@ -91,14 +91,14 @@
 					Permissions mode of the decrypted secret in a format understood by chmod.
 				'';
 			};
-			owner = mkOption {
+			user = mkOption {
 				type = types.str;
 				default = "0";
 				description = "Decrypted secret's user.";
 			};
 			group = mkOption {
 				type = types.str;
-				default = users.${config.owner}.group or "0";
+				default = users.${config.user}.group or "0";
 				description = "Decrypted secret's group.";
 			};
 		};

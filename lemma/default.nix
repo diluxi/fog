@@ -3,6 +3,7 @@
 		./hardware.nix
 		./http.nix
 		./net.nix
+		./dn42.nix
 	];
 
 	nix = {

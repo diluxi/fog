@@ -4,6 +4,7 @@
 		./http.nix
 		./net.nix
 		./dn42.nix
+		./kino.nix
 	];
 
 	nix = {

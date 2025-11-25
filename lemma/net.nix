@@ -79,6 +79,10 @@
 					PublicKey = "pst//8S0K2H+NA8f90KwmxoOpWAybCF85YeO4RXkVgg=";
 					AllowedIPs = [ "10.0.0.4/32" "fc00:0010::4/128" ];
 				}
+				{
+					PublicKey = "yui+/qBVDY6PCXNyFCuRJ/Gio60PzvxRYs+9AEeIUgk=";
+					AllowedIPs = [ "10.0.0.10/32" "fc00:0010::10/128" ];
+				}
 			];
 		};
 	};

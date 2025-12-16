@@ -53,13 +53,7 @@
 	systemd.network = {
 		networks."50-dn42" = {
 			name = "dn42";
-			address = [ "fc80::acab/64" ];
-			addresses = [
-				{
-					Address = "fc80::390/64";
-					# Peer = "fc80::390/64";
-				}
-			];
+			address = [ "fe80::acab/64" ];
 		};
 
 		netdevs."50-dn42" = {
@@ -72,10 +66,10 @@
 			};
 			wireguardPeers = [
 				{
+					Endpoint = "[2a01:e0a:fc5:8323::42]:42006";
 					PresharedKeyFile = config.crypt.secrets."dn42-390-psk".path;
 					PublicKey = "faHyobVhLCte+Bt6QtRV+5QSlWlzA0bTzLo3jXxYcDU=";
-					# AllowedIPs = [ "0.0.0.0/0" "::/0" ];
-					AllowedIPs = [ "fc80::390/64" ];
+					AllowedIPs = [ "fe80::390/64" ];
 				}
 			];
 		};

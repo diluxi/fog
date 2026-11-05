@@ -45,8 +45,10 @@ you simplify a design for pragmatic reasons, say so explicitly.
 
 ## Deploying
 
-phi cannot deploy yet. Push your branch and tell lux, who deploys with
-`./fog deploy test`, then `switch`.
+Push your branch and tell lux. Until fog-deploy is live, lux deploys with
+`./fog deploy test`, then `switch`. After that, a lux-signed tip of dev is
+switched to and a phi-signed one tested; `fog pull` on lemma0 deploys now
+instead of within five minutes, and `fog ratify` (wheel) keeps a test.
 
 ## Handover (2026-11-05)
 
@@ -60,21 +62,16 @@ phi cannot deploy yet. Push your branch and tell lux, who deploys with
 - `phi-foreign`, a user service for phi, clones this repo to `~/fog`, sets up
   the push and signing keys, and runs `claude remote-control`.
 
+### In review
+
+- `phi/fog-deploy`: fog-deploy (`lemma/deploy.nix`) and lemma0's `fog`
+  command (`fog ratify`, `fog pull`). Before it can switch, lux adds a cert
+  to its switch tier; phi's cert there lacks the theorem subkey. Its root is
+  the dev tip it branched from; if dev is rewritten, update it.
+
 ### Next, as agreed
 
-1. **fog-deploy**: pull-based deploys gated by commit signatures.
-   - Fetch the deploy branch on a timer, or on a webhook.
-   - Check the tip's signature against certs from the *running* system,
-     never from the incoming commit.
-   - Require the new commit to descend from the deployed one, so an older
-     signed commit can't be force-pushed to roll lemma0 back.
-   - lux-signed: `switch`. phi-signed: `test` only, so a reboot
-     reverts it until the human ratifies it.
-   - A polkit rule lets phi start `fog-deploy.service` and nothing else.
-   - Neal Walfield's sq-git is the fuller form of this policy; check nixpkgs.
-2. **fog ratify**: a command packaged in the config, for wheel, that makes the
-   running `test` system the boot default.
-3. After that: LLDAP and Authelia (`lemma/id.nix` is an unimported stub),
+1. LLDAP and Authelia (`lemma/id.nix` is an unimported stub),
    Vaultwarden, Stalwart (the `coop` branch; move its hardcoded
    `fallback-admin` secret into `crypt.secrets` first), and the webpages as
    nix-built per-site profiles instead of rsync.

@@ -6,6 +6,7 @@
 		./dn42.nix
 		./kino.nix
 		./phi.nix
+		./deploy.nix
 	];
 
 	nix = {

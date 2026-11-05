@@ -53,7 +53,11 @@
 
 		mkdir "$tmp/src"
 		git -C $repo archive "$tip" | tar -x -C "$tmp/src"
-		sys=$(nix-build "$tmp/src" -A config.system.build.toplevel --no-out-link)
+		sys=$(nix-build "$tmp/src" -A config.system.build.toplevel --no-out-link) || {
+			# like a failed activation: a new commit retries, the next tick doesn't
+			echo "$tip" >${state}/failed
+			say "build failed"; exit 1
+		}
 		say "$action $tip: $sys"
 
 		# activate as fog-switch, the unit ./fog deploy uses, so the two lock

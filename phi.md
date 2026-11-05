@@ -45,10 +45,9 @@ you simplify a design for pragmatic reasons, say so explicitly.
 
 ## Deploying
 
-Push your branch and tell lux. Until fog-deploy is live, lux deploys with
-`./fog deploy test`, then `switch`. After that, a lux-signed tip of dev is
-switched to and a phi-signed one tested; `fog pull` on lemma0 deploys now
-instead of within five minutes, and `fog ratify` (wheel) keeps a test.
+Push your branch and tell lux. fog-deploy (`lemma/deploy.nix`) checks dev
+every five minutes: a lux-signed tip is switched to, a phi-signed one only
+tested. `fog pull` on lemma0 deploys now; `fog ratify` (wheel) keeps a test.
 
 ## Handover (2026-11-05)
 
@@ -64,10 +63,9 @@ instead of within five minutes, and `fog ratify` (wheel) keeps a test.
 
 ### In review
 
-- `phi/fog-deploy`: fog-deploy (`lemma/deploy.nix`) and lemma0's `fog`
-  command (`fog ratify`, `fog pull`). Before it can switch, lux adds a cert
-  to its switch tier; phi's cert there lacks the theorem subkey. Its root is
-  the dev tip it branched from; if dev is rewritten, update it.
+- `phi/fog-deploy`: fog-deploy, deployed by hand as generation 45, plus lux's
+  cert in its switch tier. phi's cert there still lacks the theorem subkey,
+  so phi commits made on theorem are refused.
 
 ### Next, as agreed
 

@@ -51,9 +51,20 @@
 		else say "$tip has no good signature from a trusted cert, refusing"; exit 1
 		fi
 
+		# the test tier only moves forward too: an older test-signed commit that
+		# still descends from $switched must not replace a newer tested one
+		if [ $action = test ] && read -r tested _ <${state}/tested 2>/dev/null; then
+			git -C $repo merge-base --is-ancestor "$tested" "$tip" ||
+				{ say "$tip does not descend from tested $tested, refusing"; exit 1; }
+		fi
+
 		mkdir "$tmp/src"
 		git -C $repo archive "$tip" | tar -x -C "$tmp/src"
-		sys=$(nix-build "$tmp/src" -A config.system.build.toplevel --no-out-link)
+		sys=$(nix-build "$tmp/src" -A config.system.build.toplevel --no-out-link) || {
+			# like a failed activation: a new commit retries, the next tick doesn't
+			echo "$tip" >${state}/failed
+			say "build failed"; exit 1
+		}
 		say "$action $tip: $sys"
 
 		# activate as fog-switch, the unit ./fog deploy uses, so the two lock
@@ -98,13 +109,22 @@
 		echo "fog ratify: $sys is the boot default"
 	'';
 
+	# each run's output also goes to ${state}/<name>.log, readable by phi, who
+	# can start fog-deploy but not read the system journal
+	logged = name: script: pkgs.writeShellScript "${name}-logged" ''
+		set -o pipefail
+		${script} 2>&1 | tee ${state}/${name}.log
+	'';
+
 	# lemma0's own fog, on every user's PATH: `ssh lemma0 fog ratify`. it only
 	# starts units; polkit decides who may (wheel: any, phi: fog-deploy).
 	fog = pkgs.writeShellScriptBin "fog" ''
 		run() {
-			since=$(date +@%s)
+			since=$(date +%s)
 			systemctl start "$1.service"; status=$?
-			journalctl -o cat -u "$1" --since "$since"
+			# only show the log if this run wrote it (polkit may have refused)
+			log=${state}/$1.log
+			[ -f $log ] && [ "$(stat -c %Y $log)" -ge "$since" ] && cat $log
 			exit $status
 		}
 		case ''${1-} in
@@ -121,7 +141,7 @@ in {
 		serviceConfig = {
 			Type = "oneshot";
 			StateDirectory = "fog-deploy";
-			ExecStart = ratify;
+			ExecStart = logged "fog-ratify" ratify;
 		};
 	};
 	environment.systemPackages = [ fog ];
@@ -135,7 +155,7 @@ in {
 		serviceConfig = {
 			Type = "oneshot";
 			StateDirectory = "fog-deploy";
-			ExecStart = deploy;
+			ExecStart = logged "fog-deploy" deploy;
 		};
 	};
 

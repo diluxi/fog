@@ -38,12 +38,24 @@ build() {
 	printf %s "$sys"
 }
 
-# root via a transient system unit; polkit lets wheel manage-units, and the
-# unit outlives a dropped ssh session (same trick as nixos-rebuild)
+# root via a transient system unit; polkit lets wheel manage-units. output goes
+# to the journal, not through ssh, so ^C or a dropped session (or dbus-broker
+# reloading under systemd-run) only ends the log tail, never the activation.
+# the fixed unit name doubles as a lock against concurrent activations.
 privileged() {
-	ssh "$HOST" -- systemd-run --unit=fog-switch --collect --wait --pipe --quiet --no-ask-password \
-		--service-type=exec -E LOCALE_ARCHIVE -E NIXOS_INSTALL_BOOTLOADER \
-		/bin/sh -c "'$1'"
+	ssh "$HOST" -- "
+		systemctl is-active -q fog-switch && {
+			echo 'fog: an activation is still running; journalctl -fu fog-switch' >&2
+			exit 1
+		}
+		systemctl reset-failed fog-switch 2>/dev/null
+		since=\$(date +@%s)
+		systemd-run --unit=fog-switch --quiet --no-ask-password --service-type=exec \
+			-E LOCALE_ARCHIVE -E NIXOS_INSTALL_BOOTLOADER /bin/sh -c '$1' || exit
+		journalctl -f -o cat -u fog-switch --since \$since & tail=\$!
+		while systemctl is-active -q fog-switch; do sleep 1; done
+		sleep 1; kill \$tail
+		! systemctl is-failed -q fog-switch"
 }
 
 deploy() {

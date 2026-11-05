@@ -10,10 +10,8 @@
 	# certs are read from the running system, never from the incoming commit.
 	# a tip signed by a switch cert is switched to; one signed by a test cert
 	# only tested, so a reboot reverts it until a human ratifies it.
-	# TODO lux: add your cert here. until then the switch tier is empty and
-	# only test deploys can happen.
 	certs = {
-		switch = [ ];
+		switch = [ ./certs/lux.asc ];
 		test = [ ./certs/phi.asc ];
 	};
 

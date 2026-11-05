@@ -51,6 +51,13 @@
 		else say "$tip has no good signature from a trusted cert, refusing"; exit 1
 		fi
 
+		# the test tier only moves forward too: an older test-signed commit that
+		# still descends from $switched must not replace a newer tested one
+		if [ $action = test ] && read -r tested _ <${state}/tested 2>/dev/null; then
+			git -C $repo merge-base --is-ancestor "$tested" "$tip" ||
+				{ say "$tip does not descend from tested $tested, refusing"; exit 1; }
+		fi
+
 		mkdir "$tmp/src"
 		git -C $repo archive "$tip" | tar -x -C "$tmp/src"
 		sys=$(nix-build "$tmp/src" -A config.system.build.toplevel --no-out-link) || {

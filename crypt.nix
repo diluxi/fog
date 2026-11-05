@@ -12,10 +12,10 @@
 	certs = cfg.certificatePaths;
 
 	newGeneration = ''
-		_crypt_generation=$(basename "$(readlink ${dir})" || echo 0)
+		_crypt_generation=$(basename "$(readlink ${dir} || echo 0)")
 		(( ++_crypt_generation ))
 		echo '[crypt] creating new generation in ${mnt}/'"$_crypt_generation"
-		mk () { mkdir -p "$1"; chown 0751 "$1"; }
+		mk () { mkdir -p "$1"; chmod 0751 "$1"; }
 		mk "${mnt}"
 		grep -q "${mnt} ramfs" /proc/mounts ||
 			mount -t ramfs none "${mnt}" -o nodev,nosuid,mode=0751
@@ -32,7 +32,7 @@
 		[ "${path}" != "${dir}/${name}" ] && mkdir -p "$(dirname "${path}")"
 		(
 			umask u=r,g=,o=
-			printf %s "${text}" | ${bin} decrypt "${toString certs}" >"$TMP_FILE"
+			printf %s "${text}" | ${bin} decrypt ${escapeShellArgs certs} >"$TMP_FILE"
 		)
 		chmod ${mode} "$TMP_FILE"
 		mv -f "$TMP_FILE" "$_true_path"
@@ -40,8 +40,6 @@
 	'';
 
   cleanupAndLink = ''
-    _crypt_generation="$(basename "$(readlink ${dir})" || echo 0)"
-    (( ++_crypt_generation ))
     echo "[crypt] symlinking new secrets to ${dir} (generation $_crypt_generation)..."
     ln -sfT "${mnt}/$_crypt_generation" ${dir}
 

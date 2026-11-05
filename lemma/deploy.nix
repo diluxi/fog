@@ -75,18 +75,27 @@
 		profile=
 		[ $action = switch ] &&
 			profile="nix-env -p /nix/var/nix/profiles/system --set $sys &&"
-		if systemd-run --unit=fog-switch --wait --quiet --service-type=exec \
-			/bin/sh -c "$profile exec $sys/bin/switch-to-configuration $action"
+		status=0
+		systemd-run --unit=fog-switch --wait --quiet --service-type=exec \
+			/bin/sh -c "$profile exec $sys/bin/switch-to-configuration $action" ||
+			status=$?
+		# switch-to-configuration exits 4 when some units failed, after the new
+		# system is already in place. record what is running, not what exited.
+		if [ $status -ne 0 ] && [ "$(readlink -f /run/current-system)" != "$sys" ]
 		then
-			case $action in
-			switch) echo "$tip" >${state}/switched; rm -f ${state}/tested ;;
-			test) echo "$tip $sys" >${state}/tested ;;
-			esac
-		else
 			# don't retry a failed activation every tick; a new commit will
 			echo "$tip" >${state}/failed
 			say "activation failed, see journalctl -u fog-switch"; exit 1
 		fi
+		case $action in
+		switch) echo "$tip" >${state}/switched; rm -f ${state}/tested ;;
+		test) echo "$tip $sys" >${state}/tested ;;
+		esac
+		[ $status -eq 0 ] || {
+			say "$action $tip is running, but some units failed;" \
+				"see journalctl -u fog-switch"
+			exit 1
+		}
 	'';
 
 	# make the running system the boot default, and if fog-deploy tested it,

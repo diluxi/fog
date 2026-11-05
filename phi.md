@@ -49,6 +49,10 @@ Push your branch and tell lux. fog-deploy (`lemma/deploy.nix`) checks dev
 every five minutes: a lux-signed tip is switched to, a phi-signed one only
 tested. `fog pull` on lemma0 deploys now; `fog ratify` (wheel) keeps a test.
 
+fog-deploy only checks the tip's signature, against the certs of the running
+system. So merges into dev are always `git merge --no-ff`: a fast-forward can
+leave a commit signed elsewhere, by a key lemma0 doesn't know yet, as the tip.
+
 ## Handover (2026-11-05)
 
 ### Done

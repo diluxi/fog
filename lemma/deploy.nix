@@ -79,7 +79,55 @@
 			say "activation failed, see journalctl -u fog-switch"; exit 1
 		fi
 	'';
+
+	# make the running system the boot default, and if fog-deploy tested it,
+	# the commit later deploys must descend from
+	ratify = pkgs.writeShellScript "fog-ratify" ''
+		set -eu
+		systemctl is-active -q fog-switch &&
+			{ echo "fog ratify: an activation is still running" >&2; exit 1; }
+		sys=$(readlink -f /run/current-system)
+		[ "$(readlink -f /nix/var/nix/profiles/system)" = "$sys" ] &&
+			{ echo "fog ratify: $sys is the boot default already"; exit 0; }
+		nix-env -p /nix/var/nix/profiles/system --set "$sys"
+		"$sys/bin/switch-to-configuration" boot
+		if read -r rev tested <${state}/tested 2>/dev/null && [ "$tested" = "$sys" ]
+		then
+			echo "$rev" >${state}/switched
+			rm -f ${state}/tested
+			echo "fog ratify: ratified $rev"
+		fi
+		echo "fog ratify: $sys is the boot default"
+	'';
+
+	# lemma0's own fog, on every user's PATH: `ssh lemma0 fog ratify`. it only
+	# starts units; polkit decides who may (wheel: any, phi: fog-deploy).
+	fog = pkgs.writeShellScriptBin "fog" ''
+		run() {
+			since=$(date +@%s)
+			systemctl start "$1.service"; status=$?
+			journalctl -o cat -u "$1" --since "$since"
+			exit $status
+		}
+		case ''${1-} in
+		ratify) run fog-ratify ;; # make the running system the boot default
+		pull) run fog-deploy ;; # deploy the signed tip of ${branch} now
+		*) echo "usage: fog ratify|pull" >&2; exit 1 ;;
+		esac
+	'';
 in {
+	systemd.services.fog-ratify = {
+		description = "make the running system the boot default";
+		restartIfChanged = false;
+		path = with pkgs; [ coreutils config.nix.package systemd ];
+		serviceConfig = {
+			Type = "oneshot";
+			StateDirectory = "fog-deploy";
+			ExecStart = ratify;
+		};
+	};
+	environment.systemPackages = [ fog ];
+
 	systemd.services.fog-deploy = {
 		description = "deploy the signed tip of fog's ${branch} branch";
 		startAt = "*:0/5";

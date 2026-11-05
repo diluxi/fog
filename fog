@@ -10,6 +10,7 @@ usage() {
 $0 build [-l]
 $0 plan [-l]
 $0 deploy [-l] [switch|boot|test|dry-activate]
+$0 ratify
 $0 pin <name> <owner/repo> <branch>
 $0 tofu ...
 
@@ -89,6 +90,7 @@ case $cmd in
 build) build "$@"; echo ;;
 plan) sys=$(build "$@"); ssh "$HOST" -- nix store diff-closures /run/current-system "$sys" ;;
 deploy) deploy "$@" ;;
+ratify) ssh "$HOST" -- fog ratify ;;
 pin) pin "$@" ;;
 tofu) TF_VAR_hcloud_token=$(p show com/hetzner | awk '$1=="api:" {print $2}') tofu "$@" ;;
 *) usage ;;

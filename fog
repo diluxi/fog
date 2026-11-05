@@ -19,10 +19,10 @@ EOF
 	exit 1
 }
 
-# ship tracked files (including uncommitted changes) to $HOST
+# ship the working tree (tracked and untracked, minus ignored) to $HOST
 sync() {
-	ref=$(git -C "$DIR" stash create)
-	git -C "$DIR" archive "${ref:-HEAD}" |
+	git -C "$DIR" ls-files -z --cached --others --exclude-standard |
+		tar -C "$DIR" -cf - --null --ignore-failed-read -T - |
 		ssh "$HOST" -- "rm -rf $SRC && mkdir -p $SRC && tar -x -C $SRC"
 }
 
@@ -41,7 +41,7 @@ build() {
 # root via a transient system unit; polkit lets wheel manage-units, and the
 # unit outlives a dropped ssh session (same trick as nixos-rebuild)
 privileged() {
-	ssh "$HOST" -- systemd-run --unit=fog-switch --collect --wait --pipe --quiet \
+	ssh "$HOST" -- systemd-run --unit=fog-switch --collect --wait --pipe --quiet --no-ask-password \
 		--service-type=exec -E LOCALE_ARCHIVE -E NIXOS_INSTALL_BOOTLOADER \
 		/bin/sh -c "'$1'"
 }

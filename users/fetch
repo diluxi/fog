@@ -1,11 +1,8 @@
 #!/bin/sh
+# refresh users whose authorized keys are published at a url
+set -eu
+cd "$(dirname "$0")"
 
-mkdir -p ssh
-cd ssh
-curl -s ezri.pub | jq -R '[inputs]' >ezri.json
-find . -name '*.json' -exec \
-	jq -n --arg filename '{}' '
-  	($filename | sub("\\.json$"; "") | sub(".*/"; "")) as $name |
-  	{($name): (input)}
-  ' '{}' \;\
-	| jq -n 'reduce inputs as $item ({}; . + $item)' > ../users.json
+keys=$(curl -fsS https://ezri.pub | jq -nR '[inputs | select(length > 0)]')
+jq --argjson keys "$keys" '.ezri = $keys' keys.json >keys.json.tmp
+mv keys.json.tmp keys.json

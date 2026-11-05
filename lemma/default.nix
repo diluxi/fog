@@ -5,6 +5,7 @@
 		./net.nix
 		./dn42.nix
 		./kino.nix
+		./phi.nix
 	];
 
 	nix = {

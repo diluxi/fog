@@ -10,6 +10,7 @@
 	nix = {
 		settings = {
 			auto-optimise-store = true;
+			trusted-users = [ "@wheel" ]; # fog deploy -l
 			experimental-features = "nix-command flakes";
 		};
 		gc = {

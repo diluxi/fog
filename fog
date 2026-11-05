@@ -1,36 +1,83 @@
 #!/bin/sh
-FQDN=cpli.dev
+set -eu
+HOST=${FOG_HOST:-cpli.dev}
 DIR=$(dirname "$0")
+SRC=.cache/fog # on $HOST, relative to home
+ATTR=config.system.build.toplevel
 
-populate() {
-	ssh $FQDN -- run0 su <<EOF
-[ -d /run/fog ] && rm -r /run/fog
-mkdir -p /run/fog
-chown cpli:wheel /run/fog
+usage() {
+	cat >&2 <<EOF
+$0 build [-l]
+$0 plan [-l]
+$0 deploy [-l] [switch|boot|test|dry-activate]
+$0 pin <name> <owner/repo> <branch>
+$0 tofu ...
+
+-l builds locally and copies the closure to $HOST, whose
+   nix-daemon substitutes whatever cache.nixos.org already has
 EOF
-	rsync -r "$DIR"/* $FQDN:/run/fog
+	exit 1
+}
+
+# ship tracked files (including uncommitted changes) to $HOST
+sync() {
+	ref=$(git -C "$DIR" stash create)
+	git -C "$DIR" archive "${ref:-HEAD}" |
+		ssh "$HOST" -- "rm -rf $SRC && mkdir -p $SRC && tar -x -C $SRC"
+}
+
+# build on $HOST by default, print the system's store path
+build() {
+	if [ "${1-}" = -l ]; then
+		sys=$(nix-build "$DIR" -A $ATTR --no-out-link)
+		nix-copy-closure --use-substitutes --to "$HOST" "$sys" >&2
+	else
+		sync
+		sys=$(ssh "$HOST" -- nix-build $SRC -A $ATTR --no-out-link)
+	fi
+	printf %s "$sys"
+}
+
+# root via a transient system unit; polkit lets wheel manage-units, and the
+# unit outlives a dropped ssh session (same trick as nixos-rebuild)
+privileged() {
+	ssh "$HOST" -- systemd-run --unit=fog-switch --collect --wait --pipe --quiet \
+		--service-type=exec -E LOCALE_ARCHIVE -E NIXOS_INSTALL_BOOTLOADER \
+		/bin/sh -c "'$1'"
+}
+
+deploy() {
+	where=
+	[ "${1-}" = -l ] && { where=-l; shift; }
+	action=${1:-switch} profile=
+	case $action in
+	switch|boot) profile=true ;;
+	test|dry-activate) ;;
+	*) usage ;;
+	esac
+	sys=$(build $where)
+	[ -n "$profile" ] &&
+		profile="$sys/sw/bin/nix-env -p /nix/var/nix/profiles/system --set $sys &&"
+	privileged "$profile exec $sys/bin/switch-to-configuration $action"
 }
 
 pin() {
-	[ ! $# -eq 2 ] && { echo "$0"' pin <repo> <branch>' >&2; exit 1; }
-	repo=$1
-	branch=$2
-	ref=$(git ls-remote $repo "$branch" | awk 'NR==1{print $1}')
-	set -- --name source --unpack --print-path "$repo"/archive/"$ref".tar.gz
-	set -- $(ssh $FQDN nix-prefetch-url "$@")
-	cat <<EOF
-{
-	"ref": "$ref",
-	"sha256": "$1",
-	"store-path": "$2",
-}
-EOF
+	[ $# -eq 3 ] || usage
+	rev=$(git ls-remote "https://github.com/$2" "refs/heads/$3" | cut -f1)
+	[ -n "$rev" ] || { echo "$0: no branch $3 in $2" >&2; exit 1; }
+	url=https://github.com/$2/archive/$rev.tar.gz
+	sha256=$(nix-prefetch-url --unpack --name source "$url")
+	jq --arg n "$1" --arg url "$url" --arg sha256 "$sha256" \
+		'.[$n] = {$url, $sha256}' "$DIR/pins.json" >"$DIR/pins.json.tmp"
+	mv "$DIR/pins.json.tmp" "$DIR/pins.json"
 }
 
-case $1 in
-''|--) nixos-rebuild switch -f /run/fog/default.nix;;
-dry-run) populate; ssh $FQDN -- nixos-rebuild dry-run -f /run/fog/default.nix;;
-deploy) populate; ssh $FQDN -- run0 /run/fog/fog "$@";;
-populate) populate;;
-pin) pin;;
+cmd=${1-}; [ $# -gt 0 ] && shift
+case $cmd in
+build) build "$@"; echo ;;
+plan) sys=$(build "$@"); ssh "$HOST" -- nix store diff-closures /run/current-system "$sys" ;;
+deploy) deploy "$@" ;;
+pin) pin "$@" ;;
+tofu) TF_VAR_hcloud_token=$(p show com/hetzner | awk '$1=="api:" {print $2}') tofu "$@" ;;
+*) usage ;;
 esac

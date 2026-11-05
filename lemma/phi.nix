@@ -28,6 +28,10 @@
 			git clone https://github.com/diluxi/fog ${checkout}
 			git -C ${checkout} remote set-url --push origin ssh://git@github.com/diluxi/fog.git
 		}
+		# every session on lemma0 loads phi.md (claude reads ~/.claude/CLAUDE.md)
+		mkdir -p ~/.claude
+		grep -qxF '@${checkout}/phi.md' ~/.claude/CLAUDE.md 2>/dev/null ||
+			echo '@${checkout}/phi.md' >>~/.claude/CLAUDE.md
 	'';
 
 	# reattach to the last session if it is recent enough, else start a new one

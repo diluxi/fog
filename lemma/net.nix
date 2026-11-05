@@ -27,22 +27,13 @@
 		fqdn = "cpli.dev";
 		useDHCP = false;
 		wireguard.useNetworkd = true;
-		firewall.allowedTCPPorts = [ 51820 ];
 		firewall.allowedUDPPorts = [ 51820 ];
+		firewall.trustedInterfaces = [ "fog" ];
 	};
 
 	boot.kernel.sysctl = {
 		"net.ipv4.ip_forward" = 1;
 		"net.ipv6.conf.all.forwarding" = 1;
-	};
-
-	networking.firewall = {
-		extraInputRules = ''
-			iifname "fog" accept
-		'';
-		extraForwardRules = ''
-			iifname "fog" oifname "fog" accept
-		'';
 	};
 
 	systemd.network.enable = true;

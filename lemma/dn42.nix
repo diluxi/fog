@@ -46,7 +46,6 @@
 	'';
 
 	networking = {
-		firewall.allowedTCPPorts = [ 4201 ];
 		firewall.allowedUDPPorts = [ 4201 ];
 	};
 

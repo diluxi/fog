@@ -1,7 +1,7 @@
 { config, ... }: {
 	services.jellyfin = {
 		enable = true;
-		openFirewall = true;
+		openFirewall = false; # only via caddy or the fog interface
 	};
 
 	services.caddy = {

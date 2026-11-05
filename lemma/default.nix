@@ -55,6 +55,7 @@
 			uid = 1000;
 		};
 		bunbun.uid = 1009;
+		lux.extraGroups = [ "wheel" ];
 	};
 
 	services.openssh = {

@@ -102,13 +102,22 @@
 		echo "fog ratify: $sys is the boot default"
 	'';
 
+	# each run's output also goes to ${state}/<name>.log, readable by phi, who
+	# can start fog-deploy but not read the system journal
+	logged = name: script: pkgs.writeShellScript "${name}-logged" ''
+		set -o pipefail
+		${script} 2>&1 | tee ${state}/${name}.log
+	'';
+
 	# lemma0's own fog, on every user's PATH: `ssh lemma0 fog ratify`. it only
 	# starts units; polkit decides who may (wheel: any, phi: fog-deploy).
 	fog = pkgs.writeShellScriptBin "fog" ''
 		run() {
-			since=$(date +@%s)
+			since=$(date +%s)
 			systemctl start "$1.service"; status=$?
-			journalctl -o cat -u "$1" --since "$since"
+			# only show the log if this run wrote it (polkit may have refused)
+			log=${state}/$1.log
+			[ -f $log ] && [ "$(stat -c %Y $log)" -ge "$since" ] && cat $log
 			exit $status
 		}
 		case ''${1-} in
@@ -125,7 +134,7 @@ in {
 		serviceConfig = {
 			Type = "oneshot";
 			StateDirectory = "fog-deploy";
-			ExecStart = ratify;
+			ExecStart = logged "fog-ratify" ratify;
 		};
 	};
 	environment.systemPackages = [ fog ];
@@ -139,7 +148,7 @@ in {
 		serviceConfig = {
 			Type = "oneshot";
 			StateDirectory = "fog-deploy";
-			ExecStart = deploy;
+			ExecStart = logged "fog-deploy" deploy;
 		};
 	};
 

@@ -16,6 +16,13 @@ resource "hcloud_primary_ip" "dew0" {
 	type = "ipv6"
 	assignee_type = "server"
 	auto_delete = false
+	# hetzner's api no longer reports a datacenter, and the provider reads the
+	# missing one as a change that forces a new resource. these three must
+	# never be replaced: dew0_4 is deleted with its server
+	lifecycle {
+		ignore_changes = [datacenter]
+		prevent_destroy = true
+	}
 }
 
 resource "hcloud_primary_ip" "dew0_4" {
@@ -24,6 +31,10 @@ resource "hcloud_primary_ip" "dew0_4" {
 	type = "ipv4"
 	assignee_type = "server"
 	auto_delete = true
+	lifecycle {
+		ignore_changes = [datacenter]
+		prevent_destroy = true
+	}
 }
 
 resource "hcloud_server" "lemma0" {
@@ -36,6 +47,10 @@ resource "hcloud_server" "lemma0" {
 		ipv6 = hcloud_primary_ip.dew0.id
 		ipv4_enabled = true
 		ipv4 = hcloud_primary_ip.dew0_4.id
+	}
+	lifecycle {
+		ignore_changes = [datacenter]
+		prevent_destroy = true
 	}
 }
 

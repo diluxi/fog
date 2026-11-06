@@ -33,7 +33,7 @@
 
 	# lldap accounts that are services, not people: no mailbox, no login
 	notService = lib.concatMapStrings (uid: "(!(uid=${uid}))")
-		[ "root" "stalwart" ];
+		[ "root" "stalwart" "authelia" ];
 
 	# placeholder until the encrypted secret is pasted in its place
 	todo = name: how: throw ''

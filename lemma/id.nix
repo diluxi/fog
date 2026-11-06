@@ -16,8 +16,8 @@
 	'';
 in {
 	crypt.secrets = {
-		# lldap's root, which authelia also binds as for now
-		lldap-root.services = [ "lldap" "authelia-main" ];
+		# lldap's root, the break-glass account
+		lldap-root.services = [ "lldap" ];
 		lldap-root.text = ''
 			-----BEGIN PGP MESSAGE-----
 
@@ -89,6 +89,10 @@ in {
 			VTnZFhYpzM3+0zME70W5fnO4THaTdFIBnvYVs/jV3ikXRHBs
 			-----END PGP MESSAGE-----
 		'';
+		# password of lldap's `authelia` account (in lldap_password_manager)
+		authelia-ldap.services = [ "authelia-main" ];
+		authelia-ldap.text = todo "authelia-ldap"
+			"openssl rand -base64 33 | tr -d '\\n'";
 		authelia-storage.services = [ "authelia-main" ];
 		authelia-storage.text = ''
 			-----BEGIN PGP MESSAGE-----
@@ -149,7 +153,10 @@ in {
 				implementation = "lldap";
 				address = "ldap://127.0.0.1:3890";
 				base_dn = baseDN;
-				user = "uid=root,ou=people,${baseDN}";
+				# its own account: lldap_password_manager may read everyone and
+				# reset passwords of all but lldap_admin, which is what authelia's
+				# password reset needs and no more
+				user = "uid=authelia,ou=people,${baseDN}";
 			};
 
 			# nothing is reachable unless a rule says so
@@ -175,7 +182,7 @@ in {
 	systemd.services.authelia-main = {
 		wants = [ "lldap.service" ];
 		after = [ "lldap.service" ];
-		serviceConfig.LoadCredential = [ "ldap-password:${secret "lldap-root"}" ];
+		serviceConfig.LoadCredential = [ "ldap-password:${secret "authelia-ldap"}" ];
 	};
 
 	services.caddy.virtualHosts = {

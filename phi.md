@@ -85,11 +85,18 @@ switched to, so a rewrite stops deploys until its state is fixed by hand.
 
 ### Next, as agreed
 
-1. Vaultwarden (`phi/vaultwarden`).
-2. Stalwart (the `coop` branch; move its hardcoded `fallback-admin` secret
-   into `crypt.secrets` first).
+1. Stalwart (`phi/mail`): mx.amartia.online, accounts from LLDAP, aliases
+   in `lemma/mail.nix`. Then MX at Namecheap, then DNS to Hetzner in
+   `fog.tofu`.
+2. XMPP, on the same directory.
 3. The webpages as nix-built per-site profiles instead of rsync.
 4. Invite codes for new users, against LLDAP's GraphQL API.
+
+### Later
+
+- Bulwark's Lite build (static JMAP webmail) behind Authelia.
+- A web frontend for `crypt.secrets`, so secrets can be generated with
+  Bitwarden's generator instead of on the command line.
 
 ### Open issues
 

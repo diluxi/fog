@@ -47,20 +47,25 @@ you simplify a design for pragmatic reasons, say so explicitly.
 
 ## Deploying
 
-dev stays linear: no merge commits. Push your `phi/<topic>` branch and tell
-lux, who lands it like this:
+dev stays linear: no merge commits. Branch from `origin/dev`, push your
+`phi/<topic>` branch and tell lux. Several topics in a row go on one stack,
+each branched from the last, so that each can still be fast-forwarded. lux
+lands it like this:
 
 ```sh
 git fetch origin
-git rebase origin/dev phi/<topic>    # re-signs every commit as lux
-git switch dev && git merge --ff-only phi/<topic> && git push origin dev
+git switch dev && git merge --ff-only origin/phi/<topic> && git push origin dev
 git push origin --delete phi/<topic>
 ```
 
-The rebase makes lux the committer and signer of each commit; you stay the
-author. So the tip of dev is lux-signed, and fog-deploy (`lemma/deploy.nix`,
-every five minutes) switches to it. A phi-signed tip is only tested, until a
-wheel user runs `fog ratify` on lemma0. `fog pull` deploys right away.
+Your commits keep your signature, so the commit log shows which model wrote
+them. fog-deploy (`lemma/deploy.nix`, every five minutes) only tests a
+phi-signed tip; it becomes the boot default when a wheel user runs
+`fog ratify` on lemma0, or when lux signs a commit on top (a secret, say),
+which is switched to. `fog pull` deploys right away.
+
+A branch that waits for a secret throws at evaluation (`todo`) until lux
+commits the secret on top of it, so put it last in a stack.
 
 Don't push to dev, and never rewrite or force-push it, unless lux asks.
 fog-deploy refuses any tip that doesn't descend from the last commit it
@@ -81,16 +86,25 @@ switched to, so a rewrite stops deploys until its state is fixed by hand.
   Encrypt new secrets with
   `sqop encrypt lemma/certs/lemma0.asc lemma/certs/lux.asc`.
 - LLDAP and Authelia (`lemma/id.nix`): auth.amartia.online, and
-  ldap.amartia.online for lldap_admin with a second factor.
+  ldap.amartia.online for lldap_admin with a second factor. root is the
+  declarative break-glass account; Authelia binds as `authelia`
+  (lldap_password_manager), Stalwart as `stalwart` (lldap_strict_readonly).
+- Stalwart (`lemma/mail.nix`) on mx.amartia.online for amartia.online and
+  cpli.dev, with autoconfig. Accounts come from LLDAP, aliases from the table
+  in `mail.nix`. SPF, DKIM, DMARC and rDNS pass.
+- `crypt.secrets.<name>.services` restarts the services that read a secret
+  when it changes.
 
 ### Next, as agreed
 
-1. Stalwart (`phi/mail`): mx.amartia.online, accounts from LLDAP, aliases
-   in `lemma/mail.nix`. Then MX at Namecheap, then DNS to Hetzner in
-   `fog.tofu`.
-2. XMPP, on the same directory.
-3. The webpages as nix-built per-site profiles instead of rsync.
-4. Invite codes for new users, against LLDAP's GraphQL API.
+1. DNS at Hetzner (`fog.tofu`): both zones and rDNS, then the nameservers
+   at Namecheap.
+2. Grafana (Prometheus, node-exporter) with OIDC through Authelia.
+3. XMPP, on the same directory.
+4. kino (Jellyfin) to amartia.online, with SSO through its OIDC or LDAP
+   plugin; forward_auth would lock out the TV and phone apps.
+5. The webpages as nix-built per-site profiles instead of rsync.
+6. Invite codes for new users, against LLDAP's GraphQL API.
 
 ### Later
 
@@ -100,8 +114,12 @@ switched to, so a rewrite stops deploys until its state is fixed by hand.
 
 ### Open issues
 
-- Authelia binds to LLDAP as admin. A service account in
-  `lldap_password_manager` would be tighter.
+- Mail deliverability: Barracuda lists 91.98.239.136 (delist at
+  barracudacentral.org); Google Postmaster Tools and Microsoft SNDS/JMRP
+  are not set up.
+- Stalwart's web admin has its own login. Its OIDC directory takes only
+  bearer tokens, which would end password logins for IMAP clients; at most
+  Authelia can guard `/admin` in front of it.
 - fog WireGuard: lemma0's `fc00:0010::10` collides with peer yui's
   AllowedIPs, and the `thm//` peer at `10.0.0.1` is unidentified. lemma0's
   public key is `fog++kDxd3oYo4t280RM1HmxpaU/T1ibRKD5hOEJ8DE=`.
@@ -115,8 +133,12 @@ switched to, so a rewrite stops deploys until its state is fixed by hand.
 - gpg-sq (the Chameleon) takes trust roots from `pubring.cert.d`'s trust-root
   links, not from ownertrust, and its `--import` corrupts unprotected secret
   keys. Import those with GnuPG's `gpg`.
-- git rejects commits with more than one signature. On dev, lux's signature
-  replaces yours when lux rebases; your authorship stays.
+- git rejects commits with more than one signature, so lux doesn't rebase
+  your commits (that would replace your signature). Never amend or rewrite
+  a commit lemma0 has deployed: fog-deploy refuses a tip that doesn't
+  descend from `/var/lib/fog-deploy/switched`.
+- Stalwart's `%{file:}%` doesn't trim, so its secrets need no trailing
+  newline. A name with any record of its own hides the DNS wildcard.
 - Some nixpkgs changes are switch inhibitors and need a reboot (the
   dbus-broker change was one). `fog ratify` first: a reboot drops anything
   only tested.

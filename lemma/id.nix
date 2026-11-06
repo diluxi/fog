@@ -104,6 +104,15 @@ in {
 			LO3VfXmeXDA=
 			-----END PGP MESSAGE-----
 		'';
+		# authelia as an openid connect provider, for services that can log in
+		# through it (grafana). the hmac secret signs its tokens' state, the
+		# rsa key signs the tokens
+		authelia-oidc-hmac.services = [ "authelia-main" ];
+		authelia-oidc-hmac.text = todo "authelia-oidc-hmac"
+			"openssl rand -hex 64 | tr -d '\\n'";
+		authelia-oidc-jwk.services = [ "authelia-main" ];
+		authelia-oidc-jwk.text = todo "authelia-oidc-jwk"
+			"openssl genrsa 4096";
 		authelia-storage.services = [ "authelia-main" ];
 		authelia-storage.text = ''
 			-----BEGIN PGP MESSAGE-----
@@ -152,6 +161,8 @@ in {
 			jwtSecretFile = secret "authelia-jwt";
 			sessionSecretFile = secret "authelia-session";
 			storageEncryptionKeyFile = secret "authelia-storage";
+			oidcHmacSecretFile = secret "authelia-oidc-hmac";
+			oidcIssuerPrivateKeyFile = secret "authelia-oidc-jwk";
 		};
 		environmentVariables.AUTHELIA_AUTHENTICATION_BACKEND_LDAP_PASSWORD_FILE =
 			"%d/ldap-password";

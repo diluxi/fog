@@ -10,6 +10,7 @@
 		./id.nix
 		./vault.nix
 		./mail.nix
+		./pulse.nix
 	];
 
 	nix = {

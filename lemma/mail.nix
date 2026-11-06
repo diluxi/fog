@@ -10,14 +10,30 @@
 	certDir = "${config.services.caddy.dataDir}/.local/share/caddy/"
 		+ "certificates/acme-v02.api.letsencrypt.org-directory/${mx}";
 
-	# extra local parts at amartia.online, delivered to and sendable by their
-	# account. kept here rather than in lldap: lldap 0.6 can't filter on list
+	# extra addresses per account: delivered to it, and it may send as them.
+	# kept here rather than in lldap: lldap 0.6 can't filter on list
 	# attributes, so stalwart couldn't look an alias up there
-	aliases = {
-		lux = [ "dilux" "rea" "gaia" ];
+	accounts = {
+		lux = {
+			address = "lux@amartia.online";
+			aliases = map (local: "${local}@amartia.online")
+				[ "dilux" "rea" "gaia" "root" "postmaster" "abuse" ];
+		};
+		cpli = {
+			address = "cpli@cpli.dev";
+			aliases = [ "cpli@amartia.online" ];
+		};
 	};
-	aliasesOf = locals:  # with an optional +tag, like any other address
-		"^(${lib.concatStringsSep "|" locals})(\\+[^@]*)?@amartia\\.online$";
+	# a regex for any of these addresses, each with an optional +tag
+	anyOf = addresses: let
+		escape = lib.replaceStrings [ "." ] [ "\\." ];
+		one = address: let at = lib.splitString "@" address; in
+			"${escape (lib.head at)}(\\+[^@]*)?@${escape (lib.last at)}";
+	in "^(${lib.concatMapStringsSep "|" one addresses})$";
+
+	# lldap accounts that are services, not people: no mailbox, no login
+	notService = lib.concatMapStrings (uid: "(!(uid=${uid}))")
+		[ "root" "stalwart" ];
 
 	# placeholder until the encrypted secret is pasted in its place
 	todo = name: how: throw ''
@@ -27,8 +43,8 @@
 	'';
 in {
 	crypt.secrets = {
-		# sha512-crypt hash of the fallback admin's password (web admin)
-		stalwart-admin.text = todo "stalwart-admin"
+		# sha512-crypt hash of the password of stalwart's own root (web admin)
+		stalwart-root.text = todo "stalwart-root"
 			"openssl passwd -6 | tr -d '\\n'";
 		# password of lldap's read-only `stalwart` account
 		stalwart-ldap.text = todo "stalwart-ldap"
@@ -39,7 +55,7 @@ in {
 		enable = true;
 		stateVersion = "26.05";
 		credentials = {
-			admin = config.crypt.secrets.stalwart-admin.path;
+			root = config.crypt.secrets.stalwart-root.path;
 			ldap = config.crypt.secrets.stalwart-ldap.path;
 			tls-cert = "${certDir}/${mx}.crt";
 			tls-key = "${certDir}/${mx}.key";
@@ -83,9 +99,10 @@ in {
 				private-key = cred "tls-key";
 				default = true;
 			};
+			# local to stalwart, for when lldap is down
 			authentication.fallback-admin = {
-				user = "admin";
-				secret = cred "admin";
+				user = "root";
+				secret = cred "root";
 			};
 
 			# accounts are lldap's users. stalwart searches as `stalwart`
@@ -102,8 +119,8 @@ in {
 					auth.method = "lookup";
 				};
 				filter = {
-					name = "(&(objectClass=person)(uid=?))";
-					email = "(&(objectClass=person)(mail=?))";
+					name = "(&(objectClass=person)(uid=?)${notService})";
+					email = "(&(objectClass=person)(mail=?)${notService})";
 				};
 				attributes = {
 					name = "uid";
@@ -115,10 +132,10 @@ in {
 
 			# unknown recipients: aliases go to their account, everything
 			# for cpli.dev to cpli. user+tag@ goes to user@
-			session.rcpt.catch-all = lib.mapAttrsToList (user: locals: {
-				"if" = "matches('${aliasesOf locals}', address)";
-				"then" = "'${user}@amartia.online'";
-			}) aliases ++ [
+			session.rcpt.catch-all = lib.mapAttrsToList (uid: account: {
+				"if" = "matches('${anyOf account.aliases}', address)";
+				"then" = "'${account.address}'";
+			}) accounts ++ [
 				{
 					"if" = "matches('^[^@]+@cpli\\.dev$', address)";
 					"then" = "'cpli@cpli.dev'";
@@ -128,11 +145,11 @@ in {
 			session.rcpt.sub-addressing = true;
 
 			# and each account may send as its aliases, cpli as all of cpli.dev
-			session.auth.must-match-sender = lib.mapAttrsToList (user: locals: {
-				"if" = "authenticated_as == '${user}' "
-					+ "&& matches('${aliasesOf locals}', sender)";
+			session.auth.must-match-sender = lib.mapAttrsToList (uid: account: {
+				"if" = "authenticated_as == '${uid}' "
+					+ "&& matches('${anyOf account.aliases}', sender)";
 				"then" = false;
-			}) aliases ++ [
+			}) accounts ++ [
 				{
 					"if" = "authenticated_as == 'cpli' "
 						+ "&& matches('@cpli\\.dev$', sender)";

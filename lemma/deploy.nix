@@ -74,7 +74,7 @@
 		systemctl reset-failed fog-switch 2>/dev/null || true
 		profile=
 		[ $action = switch ] &&
-			profile="nix-env -p /nix/var/nix/profiles/system --set $sys &&"
+			profile="${config.nix.package}/bin/nix-env -p /nix/var/nix/profiles/system --set $sys &&"
 		status=0
 		systemd-run --unit=fog-switch --wait --quiet --service-type=exec \
 			/bin/sh -c "$profile exec $sys/bin/switch-to-configuration $action" ||

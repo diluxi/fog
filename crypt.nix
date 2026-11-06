@@ -12,7 +12,9 @@
 	certs = cfg.certificatePaths;
 
 	newGeneration = ''
-		_crypt_generation=$(basename "$(readlink ${dir} || echo 0)")
+		_crypt_previous=$(readlink ${dir} || true)
+		_crypt_generation=$(basename "''${_crypt_previous:-0}")
+		_crypt_failed=
 		(( ++_crypt_generation ))
 		echo '[crypt] creating new generation in ${mnt}/'"$_crypt_generation"
 		mk () { mkdir -p "$1"; chmod 0751 "$1"; }
@@ -30,24 +32,39 @@
 		TMP_FILE="$_true_path.tmp"
 		mkdir -p "$(dirname "$_true_path")"
 		[ "${path}" != "${dir}/${name}" ] && mkdir -p "$(dirname "${path}")"
-		(
+		if (
 			umask u=r,g=,o=
 			printf %s "${text}" | ${bin} decrypt ${escapeShellArgs certs} >"$TMP_FILE"
-		)
-		chmod ${mode} "$TMP_FILE"
-		mv -f "$TMP_FILE" "$_true_path"
-		[ "${path}" != "${dir}/${name}" ] && ln -sfT "${dir}/${name}" "${path}"
+		); then
+			chmod ${mode} "$TMP_FILE"
+			mv -f "$TMP_FILE" "$_true_path"
+			[ "${path}" != "${dir}/${name}" ] && ln -sfT "${dir}/${name}" "${path}"
+		else
+			echo "[crypt] could not decrypt '${name}'" >&2
+			rm -f "$TMP_FILE"
+			_crypt_failed=1
+		fi
 	'';
 
-  cleanupAndLink = ''
-    echo "[crypt] symlinking new secrets to ${dir} (generation $_crypt_generation)..."
-    ln -sfT "${mnt}/$_crypt_generation" ${dir}
-
-    (( _crypt_generation > 1 )) && {
-    echo "[crypt] removing old secrets (generation $(( _crypt_generation - 1 )))..."
-    rm -rf "${mnt}/$(( _crypt_generation - 1 ))"
-    }
-  '';
+	# a secret that fails to decrypt must not replace a working one: keep the
+	# previous generation linked, drop the new one, and fail the activation
+	# (false trips the activation script's ERR trap)
+	cleanupAndLink = ''
+		if [ -n "$_crypt_failed" ]; then
+			echo "[crypt] keeping $_crypt_previous," \
+				"dropping generation $_crypt_generation" >&2
+			rm -rf "${mnt}/$_crypt_generation"
+			_crypt_generation=$(basename "''${_crypt_previous:-0}")
+			false
+		else
+			echo "[crypt] symlinking generation $_crypt_generation to ${dir}..."
+			ln -sfT "${mnt}/$_crypt_generation" ${dir}
+			if [ -n "$_crypt_previous" ]; then
+				echo "[crypt] removing old secrets ($_crypt_previous)..."
+				rm -rf "$_crypt_previous"
+			fi
+		fi
+	'';
 
   installSecrets = builtins.concatStringsSep "\n" (
     [ "echo '[crypt] decrypting secrets...'" ]

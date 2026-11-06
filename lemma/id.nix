@@ -91,8 +91,19 @@ in {
 		'';
 		# password of lldap's `authelia` account (in lldap_password_manager)
 		authelia-ldap.services = [ "authelia-main" ];
-		authelia-ldap.text = todo "authelia-ldap"
-			"openssl rand -base64 33 | tr -d '\\n'";
+		authelia-ldap.text = ''
+			-----BEGIN PGP MESSAGE-----
+
+			wWwGFQQHYeuJ8PnxS6NfpKfm2+WoI81L/BIBB0D0F/EB0KzazxtDn2e8vP++pwE6
+			wCLUka1c2XyVzW5AEDDf0KTapS6ETyHboZ1qKa400/L6ftpqTjD7bWDF1cj5FVLg
+			wQfVIjtmXXUohuECo+bBbAYVBIxeW63uQw6sWG5vC987KBsinEoSEgEHQI1o6pLZ
+			c+WPqnUxZNpjLk2G4AKMJo6+SJOF0Ae/ZeoqMIvzaf3ecZputMfXqFd4v8dJW425
+			eVTlKaTfggCEdXDNPhF7L0y0Mcihs3t57JVQiNJ6AgkCBp0Sr5vxcgG4EpXsC+Vu
+			dWot9gQsxZLT4f5mbkrh5TdUrt5LBGTmFoQuCLQQqHWJMB7x51C/BHjpGLNa+Exb
+			zPmiYTYjHphRPrxdf3i9AQ+y0CwLuQVp+t3bDOzFTTXDFsXge86Y4ZRIFELyX7WR
+			LO3VfXmeXDA=
+			-----END PGP MESSAGE-----
+		'';
 		authelia-storage.services = [ "authelia-main" ];
 		authelia-storage.text = ''
 			-----BEGIN PGP MESSAGE-----

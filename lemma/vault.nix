@@ -11,8 +11,21 @@
 in {
 	# ADMIN_TOKEN as an argon2 hash, in systemd EnvironmentFile syntax.
 	# vaultwarden prints the line itself, single quotes included
-	crypt.secrets.vaultwarden-env.text = todo "vaultwarden-env"
-		"$(nix-build --no-out-link -A pkgs.vaultwarden)/bin/vaultwarden hash";
+	crypt.secrets.vaultwarden-env.text = ''
+		-----BEGIN PGP MESSAGE-----
+
+		wWwGFQQHYeuJ8PnxS6NfpKfm2+WoI81L/BIBB0CeX+Js8itVfaDdRLziOw4IfPD/
+		BDMfahU226CTjP/rbzBKjl/TwhJQ/DbFb4TQaPiw3TvXeplmlCk+SkqkvUycCy9N
+		mxdbntWIEJ7foSkDvD/BbAYVBIxeW63uQw6sWG5vC987KBsinEoSEgEHQKZlm0bt
+		iMGZlGjskKTFdZ7rtv/Qge5GXLNPsfGTbQ49MCblVMp26naJb1pfvSUR4c8hRKBk
+		QqLf+Oc7dcHnCH87QZomGNZxhbv2UUJoFz2vydLAFgIJAgYiWqjheFka6PIVPqr9
+		UVIrrG2Xp4/rLKO49D0Tf+mzB0Y7tlKbeYzWJ+0fEHbrsJK+hP+rsTNJEaDJ+biv
+		VCSzsxlfUVVIc0KtvJ5ZieBoqtIiWXX3FCLeFWp8Z1hpucNWT09ktff4H8GEVOcm
+		Q43IrG0fY+QpwoUfGemGweoAaCGxKyx5f1PAD7+o6hEra1mIbtzzv5FXzlKenuK9
+		FLjrSXjBHBSInMQ1L4tFMsKKg4nwYjnFidm5hiRkzyPTRGatjXpA7muvC4zYg03V
+		sWC8VyI=
+		-----END PGP MESSAGE-----
+	'';
 
 	services.vaultwarden = {
 		enable = true;

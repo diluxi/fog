@@ -8,6 +8,10 @@
 		fqdn = config.networking.fqdn;
 	in {
 		enable = true;
+		virtualHosts."audit.${fqdn}".extraConfig = ''
+			root * /srv/http/audit
+			file_server
+		'';
 		virtualHosts.${fqdn}.extraConfig = ''
 			root * /srv/http/${fqdn}
 			file_server

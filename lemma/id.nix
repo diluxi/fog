@@ -17,6 +17,7 @@
 in {
 	crypt.secrets = {
 		# lldap's root, which authelia also binds as for now
+		lldap-root.services = [ "lldap" "authelia-main" ];
 		lldap-root.text = ''
 			-----BEGIN PGP MESSAGE-----
 
@@ -30,6 +31,7 @@ in {
 			A2c0vMvyd2ySRmbP
 			-----END PGP MESSAGE-----
 		'';
+		lldap-jwt.services = [ "lldap" ];
 		lldap-jwt.text = ''
 			-----BEGIN PGP MESSAGE-----
 
@@ -45,6 +47,7 @@ in {
 		'';
 		# key_seed derives lldap's password-hashing key. losing it voids every
 		# stored password, so it lives here rather than only in /var/lib
+		lldap-env.services = [ "lldap" ];
 		lldap-env.text = ''
 			-----BEGIN PGP MESSAGE-----
 
@@ -58,6 +61,7 @@ in {
 			ESugMkholL8X6yGELvSKwH3oh3UZbLy8qKKVrzqvKHD9rrttdNIkBK97UCE=
 			-----END PGP MESSAGE-----
 		'';
+		authelia-jwt.services = [ "authelia-main" ];
 		authelia-jwt.text = ''
 			-----BEGIN PGP MESSAGE-----
 
@@ -71,6 +75,7 @@ in {
 			QK2ZIa7y3RN65ur/HsvES5SGgtJl3JMI6W8440SM5PdSPa3S
 			-----END PGP MESSAGE-----
 		'';
+		authelia-session.services = [ "authelia-main" ];
 		authelia-session.text = ''
 			-----BEGIN PGP MESSAGE-----
 
@@ -84,6 +89,7 @@ in {
 			VTnZFhYpzM3+0zME70W5fnO4THaTdFIBnvYVs/jV3ikXRHBs
 			-----END PGP MESSAGE-----
 		'';
+		authelia-storage.services = [ "authelia-main" ];
 		authelia-storage.text = ''
 			-----BEGIN PGP MESSAGE-----
 

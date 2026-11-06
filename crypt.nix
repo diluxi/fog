@@ -116,6 +116,14 @@
 				default = users.${config.user}.group or "0";
 				description = "Decrypted secret's group.";
 			};
+			services = mkOption {
+				type = types.listOf types.str;
+				default = [];
+				description = ''
+					Services that read the secret only when they start, and so
+					restart when it changes.
+				'';
+			};
 		};
 	});
 in {
@@ -168,5 +176,13 @@ in {
 			};
 			crypt = { text = ""; deps = [ "cryptChown" ]; };
 		};
+
+		# the units embed a hash of the ciphertext, so a changed secret changes
+		# them and the switch restarts them. re-encrypting an unchanged secret
+		# restarts them too, since only the ciphertext is known at evaluation
+		systemd.services = mkMerge (mapAttrsToList (_: secret:
+			genAttrs secret.services (_: {
+				restartTriggers = [ (builtins.hashString "sha256" secret.text) ];
+			})) cfg.secrets);
 	};
 }

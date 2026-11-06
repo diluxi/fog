@@ -44,6 +44,7 @@
 in {
 	crypt.secrets = {
 		# sha512-crypt hash of the password of stalwart's own root (web admin)
+		stalwart-root.services = [ "stalwart" ];
 		stalwart-root.text = ''
 			-----BEGIN PGP MESSAGE-----
 
@@ -59,6 +60,7 @@ in {
 			-----END PGP MESSAGE-----
 		'';
 		# password of lldap's read-only `stalwart` account
+		stalwart-ldap.services = [ "stalwart" ];
 		stalwart-ldap.text = ''
 			-----BEGIN PGP MESSAGE-----
 

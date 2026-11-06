@@ -11,6 +11,7 @@
 in {
 	# ADMIN_TOKEN as an argon2 hash, in systemd EnvironmentFile syntax.
 	# vaultwarden prints the line itself, single quotes included
+	crypt.secrets.vaultwarden-env.services = [ "vaultwarden" ];
 	crypt.secrets.vaultwarden-env.text = ''
 		-----BEGIN PGP MESSAGE-----
 

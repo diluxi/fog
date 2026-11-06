@@ -205,4 +205,19 @@ in {
 		}
 		reverse_proxy 127.0.0.1:8080
 	'';
+
+	# thunderbird's (and k-9's) account autoconfig, which stalwart answers
+	# with mx's ports and the account's lldap uid. only that path is proxied,
+	# so the web admin stays on mx alone
+	services.caddy.virtualHosts."autoconfig.amartia.online" = {
+		serverAliases = [ "autoconfig.cpli.dev" ];
+		extraConfig = ''
+			handle /mail/config-v1.1.xml {
+				reverse_proxy 127.0.0.1:8080
+			}
+			handle {
+				respond 404
+			}
+		'';
+	};
 }

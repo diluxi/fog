@@ -1,0 +1,29 @@
+; cpli.dev, as fog.tofu hands it to hetzner. hetzner keeps the SOA and NS.
+; one record per line: owner [ttl] [IN] type value, owners relative to the
+; zone or @. no $ORIGIN, no parentheses, and comments only on lines of
+; their own. a name with any record of its own hides the wildcard, so give
+; it its addresses too
+
+@                   A     91.98.239.136
+@                   AAAA  2a01:4f8:c2c:e253::1
+@                   MX    10 mx.amartia.online.
+@                   TXT   "v=spf1 mx ra=postmaster -all"
+*                   A     91.98.239.136
+*                   AAAA  2a01:4f8:c2c:e253::1
+
+mail                CNAME mx.amartia.online.
+
+; policy and reports
+_dmarc              TXT   "v=DMARC1; p=reject; rua=mailto:postmaster@cpli.dev; ruf=mailto:postmaster@cpli.dev"
+_smtp._tls          TXT   "v=TLSRPTv1; rua=mailto:postmaster@cpli.dev"
+
+; client discovery (rfc 6186, 8314, 6764)
+_imaps._tcp         SRV   0 1 993 mx.amartia.online.
+_submissions._tcp   SRV   0 1 465 mx.amartia.online.
+_submission._tcp    SRV   0 1 587 mx.amartia.online.
+_caldavs._tcp       SRV   0 1 443 mx.amartia.online.
+_carddavs._tcp      SRV   0 1 443 mx.amartia.online.
+
+; stalwart's dkim keys, from "view dns records" on the domain
+202611e._domainkey  TXT   "v=DKIM1; k=ed25519; h=sha256; p=DQfDBzHdmIVpWjCAQj+pyyaH0kJqWCTrc8DmMymLnVU="
+202611r._domainkey  TXT   "v=DKIM1; k=rsa; h=sha256; p=MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA20roXrIxTtbFNotWAghvHnKQdpeiLk1sUB+bg9a8/hyAyHfMRTUp+UueZ1J8tzBWgvrxDpMym7qH6a06Wrz9GLPfGnqVgSC7Le7HfslOQKcbRTb2m9GOd3ZdUdb407uksNVaYhFlDIvt94SjIyH2yK+t07aosjJptgmPc6wBcbca8pYsDLRSCwK" "F6b76A5Ycth77+AvuhEpbU/XT+xO8OI/OiGy0baSo2EsgKS5Pltn52epjrov1HhDvTJP3hbcbTvFkpbdH5g+r59eE4C9FjgH19xs3hJ9XYjyw66azDAKyNCNquwbWGMjhMnThmF/h6pUnbRpgzx8z1nL08ZVixQIDAQAB"

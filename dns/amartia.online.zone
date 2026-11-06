@@ -1,0 +1,34 @@
+; amartia.online, as fog.tofu hands it to hetzner. hetzner keeps the SOA and NS.
+; one record per line: owner [ttl] [IN] type value, owners relative to the
+; zone or @. no $ORIGIN, no parentheses, and comments only on lines of
+; their own. a name with any record of its own hides the wildcard, so give
+; it its addresses too
+
+@                   A     91.98.239.136
+@                   AAAA  2a01:4f8:c2c:e253::1
+@                   MX    10 mx.amartia.online.
+@                   TXT   "v=spf1 mx ra=postmaster -all"
+*                   A     91.98.239.136
+*                   AAAA  2a01:4f8:c2c:e253::1
+
+; the mail server, and spf for its own helo
+mx                  A     91.98.239.136
+mx                  AAAA  2a01:4f8:c2c:e253::1
+mx                  TXT   "v=spf1 a ra=postmaster -all"
+
+mail                CNAME mx.amartia.online.
+
+; policy and reports
+_dmarc              TXT   "v=DMARC1; p=reject; rua=mailto:postmaster@amartia.online; ruf=mailto:postmaster@amartia.online"
+_smtp._tls          TXT   "v=TLSRPTv1; rua=mailto:postmaster@amartia.online"
+
+; client discovery (rfc 6186, 8314, 6764)
+_imaps._tcp         SRV   0 1 993 mx.amartia.online.
+_submissions._tcp   SRV   0 1 465 mx.amartia.online.
+_submission._tcp    SRV   0 1 587 mx.amartia.online.
+_caldavs._tcp       SRV   0 1 443 mx.amartia.online.
+_carddavs._tcp      SRV   0 1 443 mx.amartia.online.
+
+; stalwart's dkim keys, from "view dns records" on the domain
+202611e._domainkey  TXT   "v=DKIM1; k=ed25519; h=sha256; p=mYApLwASTd3LTvSsMpd4Zm1/Di8i4s0qPZ4zRb6xabM="
+202611r._domainkey  TXT   "v=DKIM1; k=rsa; h=sha256; p=MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAq8hsoBcKhwSFgFAJCkbXRU4CFLm9anwAbxUmr/obGoTIVdDjNdWfb/KQNaDNKOLtsjLRpmMKb6nbOIyyVehCJQS2dIDRVu0x+aZ9hw5FPP4VLBOXt1rx3ZGQjMtT63fZh2hmMiCjQpn72L2n5JYBRp2/QZSp6GqR4Jo3YHxqseGQZtNNSD/SX75" "mmumCsW4hUj1zzwnGt2V1RtUBVE7PsdekR6g3r8TGMd2Pxe6Agu78U/gszC2Ha7SXYkt2hndO1l1iwig+xoWYik1MfJCiNI+siexI/7jmkAl3g1AIRhcI2CBUVlwKkVgR5UTjJxq6kSAGat39yPJVuxq3lJxWmQIDAQAB"

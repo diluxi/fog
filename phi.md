@@ -31,7 +31,9 @@ dependencies on purpose.
 - You commit as phi, signed. On lemma0 the git config does this. Never pass
   `--no-gpg-sign`; if signing fails, stop and say so.
 - Put the steering human in a trailer:
-  `Co-Authored-By: lux <lux@amartia.online>`.
+  `Co-Authored-By: lux <lux@amartia.online>`. Never add a trailer for the
+  model (no `Co-Authored-By: Claude …`): your signing cert already names it.
+- Work on `phi/<topic>` branches, never on dev directly.
 - Subjects start with a sigil: `+` adds, `&` fixes, `%` refactors (and only
   refactors).
 - Wrap messages under 80 columns. One concern per commit.
@@ -45,51 +47,59 @@ you simplify a design for pragmatic reasons, say so explicitly.
 
 ## Deploying
 
-Push your branch and tell lux. fog-deploy (`lemma/deploy.nix`) checks dev
-every five minutes: a lux-signed tip is switched to, a phi-signed one only
-tested. `fog pull` on lemma0 deploys now; `fog ratify` (wheel) keeps a test.
+dev stays linear: no merge commits. Push your `phi/<topic>` branch and tell
+lux, who lands it like this:
 
-fog-deploy only checks the tip's signature, against the certs of the running
-system. So merges into dev are always `git merge --no-ff`: a fast-forward can
-leave a commit signed elsewhere, by a key lemma0 doesn't know yet, as the tip.
+```sh
+git fetch origin
+git rebase origin/dev phi/<topic>    # re-signs every commit as lux
+git switch dev && git merge --ff-only phi/<topic> && git push origin dev
+git push origin --delete phi/<topic>
+```
 
-## Handover (2026-11-05)
+The rebase makes lux the committer and signer of each commit; you stay the
+author. So the tip of dev is lux-signed, and fog-deploy (`lemma/deploy.nix`,
+every five minutes) switches to it. A phi-signed tip is only tested, until a
+wheel user runs `fog ratify` on lemma0. `fog pull` deploys right away.
+
+Don't push to dev, and never rewrite or force-push it, unless lux asks.
+fog-deploy refuses any tip that doesn't descend from the last commit it
+switched to, so a rewrite stops deploys until its state is fixed by hand.
+
+## Handover (2026-11-06)
 
 ### Done
 
 - Bugs fixed in `crypt.nix`, the firewall (`trustedInterfaces` for fog),
   `fog`'s sync and activation, and `users/fetch`.
-- nixpkgs moved to nixos-unstable (26.11pre) and deployed.
-- The lux user (wheel, OpenPGP auth subkey plus a phone key) and the phi user
-  (no groups, lingering) exist.
-- `phi-foreign`, a user service for phi, clones this repo to `~/fog`, sets up
-  the push and signing keys, and runs `claude remote-control`.
-
-### In review
-
-- `phi/id`: LLDAP and Authelia on amartia.online (`lemma/id.nix`). Waiting
-  for lux to encrypt its six `crypt.secrets`; until then evaluation stops
-  with the name of the first missing one and how to generate it. Tested
-  on theorem with dummy secrets: Authelia binds LLDAP as admin, forward
-  auth redirects to auth.amartia.online, and the admin login works.
-  Authelia binds as LLDAP's admin for now; a dedicated service account in
-  `lldap_password_manager` would be tighter.
+- nixpkgs on nixos-unstable (26.11pre), dbus-broker after a reboot.
+- Users: lux (wheel, OpenPGP auth subkey plus a phone key) and phi (no
+  groups, lingering).
+- `phi-foreign` runs `claude remote-control` for phi in `~/fog`.
+- fog-deploy and `fog ratify` deploy signed commits from dev.
+- crypt: lemma0 decrypts with its own host cert, `lemma/certs/lemma0.asc`.
+  Encrypt new secrets with
+  `sqop encrypt lemma/certs/lemma0.asc lemma/certs/lux.asc`.
+- LLDAP and Authelia (`lemma/id.nix`): auth.amartia.online, and
+  ldap.amartia.online for lldap_admin with a second factor.
 
 ### Next, as agreed
 
-1. Vaultwarden, Stalwart (the `coop` branch; move its hardcoded
-   `fallback-admin` secret into `crypt.secrets` first), and the webpages as
-   nix-built per-site profiles instead of rsync.
+1. Vaultwarden (`phi/vaultwarden`).
+2. Stalwart (the `coop` branch; move its hardcoded `fallback-admin` secret
+   into `crypt.secrets` first).
+3. The webpages as nix-built per-site profiles instead of rsync.
+4. Invite codes for new users, against LLDAP's GraphQL API.
 
 ### Open issues
 
+- Authelia binds to LLDAP as admin. A service account in
+  `lldap_password_manager` would be tighter.
 - fog WireGuard: lemma0's `fc00:0010::10` collides with peer yui's
   AllowedIPs, and the `thm//` peer at `10.0.0.1` is unidentified. lemma0's
   public key is `fog++kDxd3oYo4t280RM1HmxpaU/T1ibRKD5hOEJ8DE=`.
 - sshd stays public until fog WireGuard works end to end; then bind it to fog.
 - Jellyfin migrates its database one way on nixpkgs bumps; back up first.
-- `phi-foreign` hasn't been tested without a terminal. If `claude
-  remote-control` needs one, wrap it in `script -qfec … /dev/null`.
 
 ### Gotchas
 
@@ -98,8 +108,11 @@ leave a commit signed elsewhere, by a key lemma0 doesn't know yet, as the tip.
 - gpg-sq (the Chameleon) takes trust roots from `pubring.cert.d`'s trust-root
   links, not from ownertrust, and its `--import` corrupts unprotected secret
   keys. Import those with GnuPG's `gpg`.
-- git rejects commits with more than one signature. Co-signing means a signed
-  merge or tag on top.
+- git rejects commits with more than one signature. On dev, lux's signature
+  replaces yours when lux rebases; your authorship stays.
+- Some nixpkgs changes are switch inhibitors and need a reboot (the
+  dbus-broker change was one). `fog ratify` first: a reboot drops anything
+  only tested.
 - On theorem, gpg-agent shows one pinentry at a time. A signing prompt for lux
   blocks the user's pass lookups, which is why lux has its own agent unlocked
   with `lux-unlock`.

@@ -8,6 +8,7 @@
 		./phi.nix
 		./deploy.nix
 		./id.nix
+		./vault.nix
 	];
 
 	nix = {

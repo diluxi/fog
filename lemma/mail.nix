@@ -44,11 +44,33 @@
 in {
 	crypt.secrets = {
 		# sha512-crypt hash of the password of stalwart's own root (web admin)
-		stalwart-root.text = todo "stalwart-root"
-			"openssl passwd -6 | tr -d '\\n'";
+		stalwart-root.text = ''
+			-----BEGIN PGP MESSAGE-----
+
+			wWwGFQQHYeuJ8PnxS6NfpKfm2+WoI81L/BIBB0CUnT8RoQGQwJ+3IiIO5ohnjpzL
+			/g4xCY5WRhmyI7AafzD2rwDSdbsS7wOr0ekEdy+Op4NOBtXRKopaCby258C7fAS0
+			qF6ONfRV1WF6JyjRnIrBbAYVBIxeW63uQw6sWG5vC987KBsinEoSEgEHQBLAptuy
+			dQuf5RubxBQVU822wgx1Lby2Kg6ir5DIXg1gMJ1N34HnTzimgF27admua2iJ4QeB
+			QILmBiODL7JV3ub2DBhWxZSixq4BrhYnYNS2ZtK+AgkCBqESWsF9UIxJcUHT7Kav
+			evjL1ekc0S2lL8TNVSZtKPe3MKd9jrz21OdBPmiKijHC/cnVIthMKMnGbHTJOIBv
+			hk3qiuOHZEHjpsjabd0fd1N5o4QuGsPDmkRcDAFfJalGsHp+tPR/oGtAWHXEjo3b
+			S0M6oRJcck170OOCg/3uAU0TRMxZKIB3EC+0iKT8mfFLBPDpwVkA9h43dGEkycs0
+			dzuo/bUZIOzfceCfZT/+ZRXvG3pTQpdD1/R1MA==
+			-----END PGP MESSAGE-----
+		'';
 		# password of lldap's read-only `stalwart` account
-		stalwart-ldap.text = todo "stalwart-ldap"
-			"openssl rand -base64 33 | tr -d '\\n'";
+		stalwart-ldap.text = ''
+			-----BEGIN PGP MESSAGE-----
+
+			wWwGFQQHYeuJ8PnxS6NfpKfm2+WoI81L/BIBB0AagtsW4jvuIbp1HTRaygN0Zxdn
+			peNfLD6ClfoIeocKajBbwd9VRG9XaINjkTXNFmgSdfdFHJ0gyHOrW70d34QKfAJo
+			GJQ9slOSDcb5tk2CuRDBbAYVBIxeW63uQw6sWG5vC987KBsinEoSEgEHQMTmM+Mu
+			k66JbrsXA0Pwwl2uxy1Ct8XsJk7b2n8d15ZcML6b+T+OhPxunEhNUeD/AZvN5qHR
+			neQTXLKO4V4dn3YIbkIpOAflgIuvF/m3qrAjdNJuAgkCBqLSAClKNQDej8Sfgl6C
+			tvkCJcbKyRivH4ENPc4c/WlRZB/7MQjZZFuSReF7H1wiixRAec7QZZnVTcdDNu++
+			9uCVxPfINOq2KGgrY/bQ8pUYt00U2mI3eCN0YdIku5YbSkx9CmEkhXTQTaQ=
+			-----END PGP MESSAGE-----
+		'';
 	};
 
 	services.stalwart = {

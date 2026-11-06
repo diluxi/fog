@@ -97,6 +97,7 @@ in {
 				"session.rcpt.catch-all.*" "session.rcpt.sub-addressing"
 				"session.auth.must-match-sender.*" "http.use-x-forwarded"
 				"spam-filter.resource" "resolver.*" "webadmin.*"
+				"metrics.prometheus.*"
 			];
 
 			server.hostname = mx;
@@ -117,6 +118,8 @@ in {
 				http = { bind = [ "127.0.0.1:8080" ]; protocol = "http"; };
 			};
 			http.use-x-forwarded = true;
+			# for prometheus (lemma/pulse.nix); caddy keeps it off the web
+			metrics.prometheus.enable = true;
 
 			certificate.mx = {
 				cert = cred "tls-cert";
@@ -205,6 +208,7 @@ in {
 				dir https://acme-v02.api.letsencrypt.org/directory
 			}
 		}
+		respond /metrics/* 404
 		reverse_proxy 127.0.0.1:8080
 	'';
 

@@ -7,6 +7,7 @@
 		./kino.nix
 		./phi.nix
 		./deploy.nix
+		./id.nix
 	];
 
 	nix = {

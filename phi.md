@@ -67,14 +67,17 @@ leave a commit signed elsewhere, by a key lemma0 doesn't know yet, as the tip.
 
 ### In review
 
-- `phi/fog-deploy`: fog-deploy, deployed by hand as generation 45, plus lux's
-  cert in its switch tier. phi's cert there still lacks the theorem subkey,
-  so phi commits made on theorem are refused.
+- `phi/id`: LLDAP and Authelia on amartia.online (`lemma/id.nix`). Waiting
+  for lux to encrypt its six `crypt.secrets`; until then evaluation stops
+  with the name of the first missing one and how to generate it. Tested
+  on theorem with dummy secrets: Authelia binds LLDAP as admin, forward
+  auth redirects to auth.amartia.online, and the admin login works.
+  Authelia binds as LLDAP's admin for now; a dedicated service account in
+  `lldap_password_manager` would be tighter.
 
 ### Next, as agreed
 
-1. LLDAP and Authelia (`lemma/id.nix` is an unimported stub),
-   Vaultwarden, Stalwart (the `coop` branch; move its hardcoded
+1. Vaultwarden, Stalwart (the `coop` branch; move its hardcoded
    `fallback-admin` secret into `crypt.secrets` first), and the webpages as
    nix-built per-site profiles instead of rsync.
 

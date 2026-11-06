@@ -9,6 +9,7 @@
 		./deploy.nix
 		./id.nix
 		./vault.nix
+		./mail.nix
 	];
 
 	nix = {

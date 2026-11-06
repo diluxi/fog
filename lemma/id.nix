@@ -16,8 +16,8 @@
 	'';
 in {
 	crypt.secrets = {
-		# lldap's admin, which authelia also binds as for now
-		lldap-admin.text = ''
+		# lldap's root, which authelia also binds as for now
+		lldap-root.text = ''
 			-----BEGIN PGP MESSAGE-----
 
 			wWwGFQQHYeuJ8PnxS6NfpKfm2+WoI81L/BIBB0BQnuh67sNi1pbivu2v4yA8/aGO
@@ -106,20 +106,23 @@ in {
 			http_host = "127.0.0.1";
 			http_url = "https://${ldap}";
 			ldap_base_dn = baseDN;
-			ldap_user_email = "lux@${domain}";
+			# root: the declarative break-glass account, which services bind as.
+			# people administer lldap as members of lldap_admin instead
+			ldap_user_dn = "root";
+			ldap_user_email = "root@${domain}";
 			key_file = ""; # the key comes from LLDAP_KEY_SEED in lldap-env
-			# the admin password is declarative; changing it in the ui won't stick
+			# root's password is declarative; changing it in the ui won't stick
 			force_ldap_user_pass_reset = "always";
 		};
 		environment = {
 			LLDAP_JWT_SECRET_FILE = "%d/jwt";
-			LLDAP_LDAP_USER_PASS_FILE = "%d/admin";
+			LLDAP_LDAP_USER_PASS_FILE = "%d/root";
 		};
 		environmentFile = secret "lldap-env";
 	};
 	systemd.services.lldap.serviceConfig.LoadCredential = [
 		"jwt:${secret "lldap-jwt"}"
-		"admin:${secret "lldap-admin"}"
+		"root:${secret "lldap-root"}"
 	];
 
 	services.authelia.instances.main = {
@@ -140,7 +143,7 @@ in {
 				implementation = "lldap";
 				address = "ldap://127.0.0.1:3890";
 				base_dn = baseDN;
-				user = "uid=admin,ou=people,${baseDN}";
+				user = "uid=root,ou=people,${baseDN}";
 			};
 
 			# nothing is reachable unless a rule says so
@@ -166,7 +169,7 @@ in {
 	systemd.services.authelia-main = {
 		wants = [ "lldap.service" ];
 		after = [ "lldap.service" ];
-		serviceConfig.LoadCredential = [ "ldap-password:${secret "lldap-admin"}" ];
+		serviceConfig.LoadCredential = [ "ldap-password:${secret "lldap-root"}" ];
 	};
 
 	services.caddy.virtualHosts = {

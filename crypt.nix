@@ -126,6 +126,46 @@
 			};
 		};
 	});
+	generatedType = types.submodule ({ config, ... }: {
+		options = {
+			name = mkOption {
+				type = types.str;
+				default = config._module.args.name;
+			};
+			script = mkOption {
+				type = types.lines;
+				default = "openssl rand -hex 32 | tr -d '\\n' >$out";
+				description = ''
+					Writes the secret to $out, and may write more files beside it
+					as $out.<suffix>. Runs once, as root, in a private directory,
+					with coreutils, sed and openssl on its path.
+				'';
+			};
+			path = mkOption {
+				type = types.str;
+				default = "${cfg.generatedDir}/${config.name}";
+				readOnly = true;
+			};
+		};
+	});
+
+	# a secret is made in a temporary directory and moved into place whole,
+	# so a failed script leaves nothing behind and runs again next time
+	generateSecret = secret: with secret; ''
+		if [ ! -e ${escapeShellArg path} ]; then
+			echo "[crypt] generating '${name}'"
+			_crypt_tmp=$(mktemp -d ${escapeShellArg cfg.generatedDir}/.new.XXXXXX)
+			if (cd "$_crypt_tmp" && umask 077 && export out="$_crypt_tmp/${name}" &&
+				PATH=${makeBinPath [ pkgs.coreutils pkgs.gnused pkgs.openssl ]}:$PATH \
+					${pkgs.bash}/bin/bash -euo pipefail -c ${escapeShellArg script} &&
+				[ -s "$out" ]); then
+				mv "$_crypt_tmp"/* ${escapeShellArg cfg.generatedDir}/
+			else
+				echo "[crypt] could not generate '${name}'" >&2
+			fi
+			rm -rf "$_crypt_tmp"
+		fi
+	'';
 in {
 	options.crypt = {
 		sopBin = mkOption {
@@ -156,9 +196,31 @@ in {
 			type = types.path;
 			default = "/run/crypt.d";
 		};
+
+		generated = mkOption {
+			type = types.attrsOf generatedType;
+			default = {};
+			description = ''
+				Secrets made on the machine itself, once, and kept in
+				generatedDir: for service internals that nobody needs to know and
+				that are cheap to lose. Read them there to break glass.
+			'';
+		};
+		generatedDir = mkOption {
+			type = types.path;
+			default = "/var/lib/crypt";
+		};
 	};
 
-	config = mkIf (cfg.secrets != {}) {
+	config = mkMerge [ (mkIf (cfg.generated != {}) {
+		system.activationScripts.cryptGenerate = {
+			text = concatStringsSep "\n" ([
+				"mkdir -p ${escapeShellArg cfg.generatedDir}"
+				"chmod 0700 ${escapeShellArg cfg.generatedDir}"
+			] ++ map generateSecret (attrValues cfg.generated));
+			deps = [ "specialfs" ];
+		};
+	}) (mkIf (cfg.secrets != {}) {
 		# FIXME replace with sysusers setup
 		system.activationScripts = {
 			cryptNewGeneration = {
@@ -184,5 +246,5 @@ in {
 			genAttrs secret.services (_: {
 				restartTriggers = [ (builtins.hashString "sha256" secret.text) ];
 			})) cfg.secrets);
-	};
+	}) ];
 }

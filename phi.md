@@ -99,6 +99,15 @@ switched to, so a rewrite stops deploys until its state is fixed by hand.
   in `mail.nix`. SPF, DKIM, DMARC and rDNS pass.
 - `crypt.secrets.<name>.services` restarts the services that read a secret
   when it changes.
+- ecdo (`lemma/ecdo.nix`) publishes websites at runtime. Each host is a nix
+  profile in `/var/lib/ecdo/sites/<host>/site`, which caddy serves with one
+  catch-all rule and on-demand certificates. `./fog publish <site> <dir>`
+  signs `ecdo <site>\n` plus the tarball and sends both over ssh to the
+  `ecdo` user, whose keys are lux's and locked to the ecdo command. lux's
+  signature publishes to `<site>`, yours to `preview.<site>`; lux promotes a
+  preview by publishing the same tree, which lands on the same store path.
+  You sign with `FOG_GPG=gpg-phi FOG_KEY='CD846977E6AC3DB5!'` on theorem.
+  `./fog sites` lists, `./fog sites rollback <host>` rolls back.
 
 ### Next, as agreed
 
@@ -108,8 +117,7 @@ switched to, so a rewrite stops deploys until its state is fixed by hand.
 3. XMPP, on the same directory.
 4. kino (Jellyfin) to amartia.online, with SSO through its OIDC or LDAP
    plugin; forward_auth would lock out the TV and phone apps.
-5. The webpages as nix-built per-site profiles instead of rsync.
-6. Invite codes for new users, against LLDAP's GraphQL API.
+5. Invite codes for new users, against LLDAP's GraphQL API.
 
 ### Later
 

@@ -84,11 +84,16 @@ switched to, so a rewrite stops deploys until its state is fixed by hand.
 - fog-deploy and `fog ratify` deploy signed commits from dev.
 - crypt: lemma0 decrypts with its own host cert, `lemma/certs/lemma0.asc`.
   Encrypt new secrets with
-  `sqop encrypt lemma/certs/lemma0.asc lemma/certs/lux.asc`.
+  `sqop encrypt lemma/certs/lemma0.asc lemma/certs/lux.asc`. Only what must
+  survive a reinstall goes there (lldap's key_seed, authelia's storage key,
+  passwords lux chose). Service internals are `crypt.generated`: made once
+  on lemma0 in /var/lib/crypt, and read there to break glass. lux doesn't
+  want them in a password manager.
 - LLDAP and Authelia (`lemma/id.nix`): auth.amartia.online, and
   ldap.amartia.online for lldap_admin with a second factor. root is the
-  declarative break-glass account; Authelia binds as `authelia`
-  (lldap_password_manager), Stalwart as `stalwart` (lldap_strict_readonly).
+  declarative break-glass account. Services bind as their own accounts,
+  declared with `lldap.serviceAccounts` (`lemma/lldap-accounts.nix`), which
+  creates them, adds their groups and sets generated passwords.
 - Stalwart (`lemma/mail.nix`) on mx.amartia.online for amartia.online and
   cpli.dev, with autoconfig. Accounts come from LLDAP, aliases from the table
   in `mail.nix`. SPF, DKIM, DMARC and rDNS pass.

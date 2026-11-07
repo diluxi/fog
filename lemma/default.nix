@@ -2,6 +2,7 @@
 	imports = [
 		./hardware.nix
 		./http.nix
+		./ecdo.nix
 		./net.nix
 		./dn42.nix
 		./kino.nix

@@ -16,8 +16,11 @@
 			legend = { displayMode = "list"; placement = "bottom"; };
 		};
 	};
-	stat = panel "stat";
-	gauge = title: targets: panel "gauge" title "percentunit" targets // {
+	# stat and gauge panels show the current value, whatever the time range:
+	# a range query that coarse can miss every sample of a young prometheus
+	instant = p: p // { targets = map (t: t // { instant = true; range = false; }) p.targets; };
+	stat = title: unit: targets: instant (panel "stat" title unit targets);
+	gauge = title: targets: instant (panel "gauge" title "percentunit" targets) // {
 		fieldConfig.defaults = {
 			unit = "percentunit";
 			min = 0;
@@ -60,7 +63,7 @@
 		title = "lemma0";
 		timezone = "browser";
 		refresh = "1m";
-		time = { from = "now-7d"; to = "now"; };
+		time = { from = "now-24h"; to = "now"; };
 		schemaVersion = 39;
 		panels = lib.concatLists [
 			(row 0 4 [
@@ -76,8 +79,8 @@
 			])
 			(row 4 8 [
 				(graph "traffic" "bps" [
-					(query "rate(node_network_receive_bytes_total{${wan}}[5m]) * 8" "in")
-					(query "-rate(node_network_transmit_bytes_total{${wan}}[5m]) * 8" "out")
+					(query "rate(node_network_receive_bytes_total{${wan}}[$__rate_interval]) * 8" "in")
+					(query "-rate(node_network_transmit_bytes_total{${wan}}[$__rate_interval]) * 8" "out")
 				])
 				(bars "traffic per day" "decbytes" [
 					(query "increase(node_network_receive_bytes_total{${wan}}[1d])" "in")
@@ -90,7 +93,7 @@
 					- node_filesystem_avail_bytes{fstype!~"tmpfs|ramfs|vfat"}
 				'' "{{mountpoint}}") ])
 				(graph "cpu" "percentunit" [ (query
-					''1 - avg(rate(node_cpu_seconds_total{mode="idle"}[5m]))'' "busy") ])
+					''1 - avg(rate(node_cpu_seconds_total{mode="idle"}[$__rate_interval]))'' "busy") ])
 				(graph "memory" "decbytes" [
 					(query "node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes" "used")
 					(query "node_memory_MemTotal_bytes" "total")
@@ -112,9 +115,9 @@
 			])
 			(row 28 8 [
 				(graph "web requests by site" "reqps" [ (query
-					"sum by (host) (rate(caddy_http_requests_total[5m]))" "{{host}}") ])
+					"sum by (host) (rate(caddy_http_requests_total[$__rate_interval]))" "{{host}}") ])
 				(graph "web responses by status" "reqps" [ (query ''
-					sum by (code) (rate(caddy_http_request_duration_seconds_count[5m]))
+					sum by (code) (rate(caddy_http_request_duration_seconds_count[$__rate_interval]))
 				'' "{{code}}") ])
 			])
 		];

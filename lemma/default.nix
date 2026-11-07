@@ -8,6 +8,7 @@
 		./phi.nix
 		./deploy.nix
 		./id.nix
+		./lldap-accounts.nix
 		./vault.nix
 		./mail.nix
 		./pulse.nix

@@ -3,12 +3,6 @@
 	auth = "auth.amartia.online";
 	port = 3000;
 
-	# placeholder until the encrypted secret is pasted in its place
-	todo = name: how: throw ''
-		crypt.secrets.${name} is missing. generate it with
-			${how}
-		encrypt it to lemma0 and lux, and paste the armored message here.
-	'';
 
 	# the dashboard, as nix. a panel is a title, a kind, a unit and its
 	# queries; `row` lays a list of them out side by side, 24 columns wide
@@ -127,39 +121,21 @@
 	};
 	dashboards = pkgs.writeTextDir "lemma0.json" (builtins.toJSON dashboard);
 
-	# authelia checks grafana's client secret against this hash, so only
-	# grafana holds the secret. `authelia crypto hash generate pbkdf2
-	# --variant sha512 --random --random.length 64 --random.charset
-	# alphanumeric` prints both: the password goes into grafana-oidc
-	# (without a newline), the digest here
-	grafanaDigest = throw ''
-		pulse.nix: grafana's client secret digest is missing. generate it with
-			authelia crypto hash generate pbkdf2 --variant sha512 --random \
-				--random.length 64 --random.charset alphanumeric
-		and paste the digest in place of this throw.
-	'';
+	# grafana's client secret, made on lemma0 with its pbkdf2 digest beside
+	# it: grafana reads the secret, authelia only the digest
+	oidc = config.crypt.generated.grafana-oidc.path;
 in {
-	crypt.secrets = {
-		# grafana's client secret at authelia; see grafanaDigest
-		grafana-oidc.services = [ "grafana" ];
-		grafana-oidc.text = ''
-			$pbkdf2-sha512$310000$mwE2inMz.d9JiQWQf//hrw$qH00BORfDvQd1kRjWd32KF4LeSpUqrAerXuNEpBtBHDViEUUxq5ZotqSiEEVnfocE4HliPqCPG2DX4n4q6n7ww
+	crypt.generated = {
+		grafana-oidc.script = ''
+			${pkgs.authelia}/bin/authelia crypto hash generate pbkdf2 \
+				--variant sha512 --random --random.length 64 \
+				--random.charset alphanumeric >$out.both
+			sed -n 's/^Random Password: //p' $out.both | tr -d '\n' >$out
+			sed -n 's/^Digest: //p' $out.both | tr -d '\n' >$out.digest
+			rm $out.both
 		'';
-		# signs grafana's cookies and encrypts its stored secrets
-		grafana-secret-key.services = [ "grafana" ];
-		grafana-secret-key.text = ''
-			-----BEGIN PGP MESSAGE-----
-
-			wWwGFQQHYeuJ8PnxS6NfpKfm2+WoI81L/BIBB0DrX5LcQzy7ZvY1BSfulffxwQZu
-			Pii89rWJyF2oMhuKRDC0Cm3OkQJROLjuptE1J4yx1A6s3MD86RjTT6X9pS0CiAvT
-			3PLXJ3X/orVryI9Db8jBbAYVBIxeW63uQw6sWG5vC987KBsinEoSEgEHQDDFhHZp
-			ld4HTIvr5p8EiKg9rmjSHAQGrxgHnCxf3PwXMEcP5VBM3eB+Y7EvxmxkmzefJfoe
-			Lwo8NSx+KTWTU3aZUnukAOjazWbgrKia8JLNl9KOAgkCBsYF2YwUQxqvgE1hJYM2
-			i2inhESYVokZDaE21RR48vkRtqchIlKpsmixDIA8R9ynoU4sxcWuHknqNQXahcA+
-			i2i5XUuOqsj6yQNqnkrtYHMbnA05l2h7szfOpI6/sc5rp8gnRYJFv49tPeoVTXat
-			my/mAtQARUOvb+eoIca58f0wMjCiFQxI9OXhjw==
-			-----END PGP MESSAGE-----
-		'';
+		# signs grafana's cookies and encrypts what it stores
+		grafana-secret-key = {};
 	};
 
 	services.prometheus = {
@@ -248,8 +224,8 @@ in {
 		};
 	};
 	systemd.services.grafana.serviceConfig.LoadCredential = [
-		"oidc:${config.crypt.secrets.grafana-oidc.path}"
-		"secret-key:${config.crypt.secrets.grafana-secret-key.path}"
+		"oidc:${oidc}"
+		"secret-key:${config.crypt.generated.grafana-secret-key.path}"
 	];
 
 	services.authelia.instances.main.settings.identity_providers.oidc = {
@@ -260,7 +236,8 @@ in {
 		clients = [{
 			client_id = "grafana";
 			client_name = "pulse";
-			client_secret = grafanaDigest;
+			# the template filter (on for the oidc key) reads the digest
+			client_secret = ''{{ mustEnv "CREDENTIALS_DIRECTORY" | printf "%s/grafana-oidc-digest" | secret }}'';
 			authorization_policy = "pulse";
 			require_pkce = true;
 			pkce_challenge_method = "S256";
@@ -269,6 +246,10 @@ in {
 			token_endpoint_auth_method = "client_secret_basic";
 		}];
 	};
+	systemd.services.authelia-main.serviceConfig.LoadCredential = [
+		"grafana-oidc-digest:${oidc}.digest"
+	];
+
 	services.caddy.virtualHosts.${pulse}.extraConfig = ''
 		reverse_proxy 127.0.0.1:${toString port}
 	'';

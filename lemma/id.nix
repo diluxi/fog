@@ -8,43 +8,10 @@
 	# root-owned in /run/crypt; lldap's DynamicUser doesn't exist at activation
 	secret = name: config.crypt.secrets.${name}.path;
 
-	# placeholder until the encrypted secret is pasted in its place
-	todo = name: how: throw ''
-		crypt.secrets.${name} is missing. generate it with
-			${how}
-		encrypt it to lemma0 and lux, and paste the armored message here.
-	'';
+	# internals made on lemma0 (crypt.generated), in /var/lib/crypt
+	generated = name: config.crypt.generated.${name}.path;
 in {
 	crypt.secrets = {
-		# lldap's root, the break-glass account
-		lldap-root.services = [ "lldap" ];
-		lldap-root.text = ''
-			-----BEGIN PGP MESSAGE-----
-
-			wWwGFQQHYeuJ8PnxS6NfpKfm2+WoI81L/BIBB0BQnuh67sNi1pbivu2v4yA8/aGO
-			70mWTeGaBBIYlszhDjCmRNV1pl4LBHvn/aWjvwjpoJkVDyaiJHWqUaTgSwR8EqQa
-			AketeVutF5EfIz2sACLBbAYVBIxeW63uQw6sWG5vC987KBsinEoSEgEHQDKljvv6
-			zChHEgRMQOE+clUyQs6/Z7uyuY9kSm9l2oNjMBr+vluml7+mWCp/3VkwABkVZ39G
-			wAw/cvgFuDtGmwinyFNCaidAnxs/7KePAv/u+NJ+AgkCBmDXp4l/eUUH9c5ahmSh
-			hYrjpaBl5icUrVB0SqWVHj4B2dq/nt636Y92mf8ijKeNQcbMDdsp1mKyci+1h5Yw
-			w9/aCW+AehxyKfm8J11sXr+62Dz2xTS3ecBncDFhgxJ0BXBjEg9Bc0ae9NRXcIMe
-			A2c0vMvyd2ySRmbP
-			-----END PGP MESSAGE-----
-		'';
-		lldap-jwt.services = [ "lldap" ];
-		lldap-jwt.text = ''
-			-----BEGIN PGP MESSAGE-----
-
-			wWwGFQQHYeuJ8PnxS6NfpKfm2+WoI81L/BIBB0AGV7r1SR2G8jFkKxYPEzoEAkAL
-			dJaazcpqov9WD11XbDAa1qMaTl1gOzW4rv8prmoZ4xhbb2AwfkRiUMNiYjBNubMt
-			PiZDHwiwxY4cNWVnILXBbAYVBIxeW63uQw6sWG5vC987KBsinEoSEgEHQA+loKlY
-			zZAscP+Ncpq6h3AmLbHbMJnBR/9Tu2J6tVxIMDipwbLVNQMtnKAtzpk/8Lo5sNPE
-			GVKJH5ROsbm4dkpEVCxm5Nx+iezDE7oQQWUmz9KWAgkCBiU2N4pyFhO34pEJ8UTS
-			gQFIyQCPQylTp1J4kfX2Nysf1iGHeVxiX/33xDQTJ3+gYXqFo8GoPk630Iq0kiKr
-			xqGPlFv1uAoE0RQqP2KSyfU9E6B9sdqMdbpvHlBFAkarHKw9kh3wI18Zb23py410
-			CPVQelcOt7Z1/BmSRe+xsSpb0c6QTo7HMtAiI0yOvLDY8Xdn
-			-----END PGP MESSAGE-----
-		'';
 		# key_seed derives lldap's password-hashing key. losing it voids every
 		# stored password, so it lives here rather than only in /var/lib
 		lldap-env.services = [ "lldap" ];
@@ -61,58 +28,6 @@ in {
 			ESugMkholL8X6yGELvSKwH3oh3UZbLy8qKKVrzqvKHD9rrttdNIkBK97UCE=
 			-----END PGP MESSAGE-----
 		'';
-		authelia-jwt.services = [ "authelia-main" ];
-		authelia-jwt.text = ''
-			-----BEGIN PGP MESSAGE-----
-
-			wWwGFQQHYeuJ8PnxS6NfpKfm2+WoI81L/BIBB0AcBaJ+nZUz7J3HY5NO5d6IcrwO
-			4shSWCV8DLVvU8BFMzAQqFK9TCkP4Q5BfCcd7sS1S+Lmucgs8k7eoatY+lv5ib5o
-			AJS5aq9fWVSkmxiIx/zBbAYVBIxeW63uQw6sWG5vC987KBsinEoSEgEHQCBSrEMA
-			wWTjl0WL5aQHe69IiHwOO8NVD/MGUW2pGQsEMJHuRkUZc48e6IAT3Ic+F490c9y5
-			z30SxPjLWc0FgLmXCIIxKbXFMB9oig6nvANM79KWAgkCBq29JeZ9wbzaq1oV6XCn
-			YDbCEJsQJArdiTPusjR91BBY4X9Z63K59M7e6O9mC+KeIjTtepbDyardneagWCt4
-			DokLIrtq/7HlBlmALyaI8xnqqERyIyScODvk59D/mzzxSg8ft7uBmT4+dS4pA7W7
-			QK2ZIa7y3RN65ur/HsvES5SGgtJl3JMI6W8440SM5PdSPa3S
-			-----END PGP MESSAGE-----
-		'';
-		authelia-session.services = [ "authelia-main" ];
-		authelia-session.text = ''
-			-----BEGIN PGP MESSAGE-----
-
-			wWwGFQQHYeuJ8PnxS6NfpKfm2+WoI81L/BIBB0Bw51T9HMaOWqPAzFOaSIoQjsed
-			Upz0CEGsCcAgjTYOKjC6xajKHnrQPsrgu06GsVWtj0/Ubbv2m0Brb0Pxj93NlUne
-			W+SFGh80bbkMX9+Lpn/BbAYVBIxeW63uQw6sWG5vC987KBsinEoSEgEHQEhBs7fB
-			4Ht6+c4lfHNtu78jWivJ7waNXvEifm5hWhZGMDn7Xk9dhgl9TqLcLPXY4Tu3Lmq/
-			4y3MjAYUa6FAU/FMvc0igdoGHImf3jws9pHxS9KWAgkCBs+namuvkTE46oBc2zMb
-			sxsN+2BlgRd3RiqMVz6aCPAC4rk1GYLJ1nFc66WlpBwvZytqy3KWBhfvf/ZSPM5f
-			nsiWzws7CTIgiLppMdHtEcfuDJQ1nIlUv0euaUD6oaCCIBr9xo7C8iG6ov1NLgDp
-			VTnZFhYpzM3+0zME70W5fnO4THaTdFIBnvYVs/jV3ikXRHBs
-			-----END PGP MESSAGE-----
-		'';
-		# password of lldap's `authelia` account (in lldap_password_manager)
-		authelia-ldap.services = [ "authelia-main" ];
-		authelia-ldap.text = ''
-			-----BEGIN PGP MESSAGE-----
-
-			wWwGFQQHYeuJ8PnxS6NfpKfm2+WoI81L/BIBB0D0F/EB0KzazxtDn2e8vP++pwE6
-			wCLUka1c2XyVzW5AEDDf0KTapS6ETyHboZ1qKa400/L6ftpqTjD7bWDF1cj5FVLg
-			wQfVIjtmXXUohuECo+bBbAYVBIxeW63uQw6sWG5vC987KBsinEoSEgEHQI1o6pLZ
-			c+WPqnUxZNpjLk2G4AKMJo6+SJOF0Ae/ZeoqMIvzaf3ecZputMfXqFd4v8dJW425
-			eVTlKaTfggCEdXDNPhF7L0y0Mcihs3t57JVQiNJ6AgkCBp0Sr5vxcgG4EpXsC+Vu
-			dWot9gQsxZLT4f5mbkrh5TdUrt5LBGTmFoQuCLQQqHWJMB7x51C/BHjpGLNa+Exb
-			zPmiYTYjHphRPrxdf3i9AQ+y0CwLuQVp+t3bDOzFTTXDFsXge86Y4ZRIFELyX7WR
-			LO3VfXmeXDA=
-			-----END PGP MESSAGE-----
-		'';
-		# authelia as an openid connect provider, for services that can log in
-		# through it (grafana). the hmac secret signs its tokens' state, the
-		# rsa key signs the tokens
-		authelia-oidc-hmac.services = [ "authelia-main" ];
-		authelia-oidc-hmac.text = todo "authelia-oidc-hmac"
-			"openssl rand -hex 64 | tr -d '\\n'";
-		authelia-oidc-jwk.services = [ "authelia-main" ];
-		authelia-oidc-jwk.text = todo "authelia-oidc-jwk"
-			"openssl genrsa 4096";
 		authelia-storage.services = [ "authelia-main" ];
 		authelia-storage.text = ''
 			-----BEGIN PGP MESSAGE-----
@@ -136,7 +51,8 @@ in {
 			http_host = "127.0.0.1";
 			http_url = "https://${ldap}";
 			ldap_base_dn = baseDN;
-			# root: the declarative break-glass account, which services bind as.
+			# root: the declarative break-glass account, whose password
+			# lldap-accounts generates; services bind as their own accounts.
 			# people administer lldap as members of lldap_admin instead
 			ldap_user_dn = "root";
 			ldap_user_email = "root@${domain}";
@@ -144,25 +60,33 @@ in {
 			# root's password is declarative; changing it in the ui won't stick
 			force_ldap_user_pass_reset = "always";
 		};
-		environment = {
-			LLDAP_JWT_SECRET_FILE = "%d/jwt";
-			LLDAP_LDAP_USER_PASS_FILE = "%d/root";
-		};
+		# without a jwt secret, nixpkgs' module makes one in /var/lib/lldap
 		environmentFile = secret "lldap-env";
 	};
-	systemd.services.lldap.serviceConfig.LoadCredential = [
-		"jwt:${secret "lldap-jwt"}"
-		"root:${secret "lldap-root"}"
-	];
+
+	# authelia reads the directory and resets passwords of all but
+	# lldap_admin, which is what its password reset needs and no more
+	lldap.serviceAccounts.authelia.groups = [ "lldap_password_manager" ];
+
+	crypt.generated = {
+		authelia-jwt = {};
+		authelia-session = {};
+		# authelia as an openid connect provider, for services that log in
+		# through it (grafana): the hmac secret signs its tokens' state, the
+		# rsa key the tokens
+		authelia-oidc-hmac.script = "openssl rand -hex 64 | tr -d '\\n' >$out";
+		authelia-oidc-jwk.script = "openssl genrsa -out $out 4096";
+	};
 
 	services.authelia.instances.main = {
 		enable = true;
 		secrets = {
-			jwtSecretFile = secret "authelia-jwt";
-			sessionSecretFile = secret "authelia-session";
+			jwtSecretFile = generated "authelia-jwt";
+			sessionSecretFile = generated "authelia-session";
+			# losing this one loses every second factor, so it stays in crypt
 			storageEncryptionKeyFile = secret "authelia-storage";
-			oidcHmacSecretFile = secret "authelia-oidc-hmac";
-			oidcIssuerPrivateKeyFile = secret "authelia-oidc-jwk";
+			oidcHmacSecretFile = generated "authelia-oidc-hmac";
+			oidcIssuerPrivateKeyFile = generated "authelia-oidc-jwk";
 		};
 		environmentVariables.AUTHELIA_AUTHENTICATION_BACKEND_LDAP_PASSWORD_FILE =
 			"%d/ldap-password";
@@ -175,10 +99,7 @@ in {
 				implementation = "lldap";
 				address = "ldap://127.0.0.1:3890";
 				base_dn = baseDN;
-				# its own account: lldap_password_manager may read everyone and
-				# reset passwords of all but lldap_admin, which is what authelia's
-				# password reset needs and no more
-				user = "uid=authelia,ou=people,${baseDN}";
+				user = config.lldap.serviceAccounts.authelia.dn;
 			};
 
 			# nothing is reachable unless a rule says so
@@ -202,9 +123,11 @@ in {
 		};
 	};
 	systemd.services.authelia-main = {
-		wants = [ "lldap.service" ];
-		after = [ "lldap.service" ];
-		serviceConfig.LoadCredential = [ "ldap-password:${secret "authelia-ldap"}" ];
+		wants = [ "lldap-accounts.service" ];
+		after = [ "lldap-accounts.service" ];
+		serviceConfig.LoadCredential = [
+			"ldap-password:${config.lldap.serviceAccounts.authelia.passwordFile}"
+		];
 	};
 
 	services.caddy.virtualHosts = {

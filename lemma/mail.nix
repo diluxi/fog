@@ -33,7 +33,7 @@
 
 	# lldap accounts that are services, not people: no mailbox, no login
 	notService = lib.concatMapStrings (uid: "(!(uid=${uid}))")
-		[ "root" "stalwart" "authelia" ];
+		([ "root" ] ++ lib.attrNames config.lldap.serviceAccounts);
 
 	# placeholder until the encrypted secret is pasted in its place
 	todo = name: how: throw ''
@@ -59,20 +59,6 @@ in {
 			dzuo/bUZIOzfceCfZT/+ZRXvG3pTQpdD1/R1MA==
 			-----END PGP MESSAGE-----
 		'';
-		# password of lldap's read-only `stalwart` account
-		stalwart-ldap.services = [ "stalwart" ];
-		stalwart-ldap.text = ''
-			-----BEGIN PGP MESSAGE-----
-
-			wWwGFQQHYeuJ8PnxS6NfpKfm2+WoI81L/BIBB0AagtsW4jvuIbp1HTRaygN0Zxdn
-			peNfLD6ClfoIeocKajBbwd9VRG9XaINjkTXNFmgSdfdFHJ0gyHOrW70d34QKfAJo
-			GJQ9slOSDcb5tk2CuRDBbAYVBIxeW63uQw6sWG5vC987KBsinEoSEgEHQMTmM+Mu
-			k66JbrsXA0Pwwl2uxy1Ct8XsJk7b2n8d15ZcML6b+T+OhPxunEhNUeD/AZvN5qHR
-			neQTXLKO4V4dn3YIbkIpOAflgIuvF/m3qrAjdNJuAgkCBqLSAClKNQDej8Sfgl6C
-			tvkCJcbKyRivH4ENPc4c/WlRZB/7MQjZZFuSReF7H1wiixRAec7QZZnVTcdDNu++
-			9uCVxPfINOq2KGgrY/bQ8pUYt00U2mI3eCN0YdIku5YbSkx9CmEkhXTQTaQ=
-			-----END PGP MESSAGE-----
-		'';
 	};
 
 	services.stalwart = {
@@ -80,7 +66,7 @@ in {
 		stateVersion = "26.05";
 		credentials = {
 			root = config.crypt.secrets.stalwart-root.path;
-			ldap = config.crypt.secrets.stalwart-ldap.path;
+			ldap = config.lldap.serviceAccounts.stalwart.passwordFile;
 			tls-cert = "${certDir}/${mx}.crt";
 			tls-key = "${certDir}/${mx}.key";
 		};
@@ -141,7 +127,7 @@ in {
 				url = "ldap://127.0.0.1:3890";
 				base-dn = baseDN;
 				bind = {
-					dn = "uid=stalwart,ou=people,${baseDN}";
+					dn = config.lldap.serviceAccounts.stalwart.dn;
 					secret = cred "ldap";
 					auth.method = "lookup";
 				};
@@ -191,7 +177,9 @@ in {
 
 	# a renewed certificate only reaches stalwart through a restart, since
 	# LoadCredential copies it at start
-	systemd.services.stalwart.after = [ "lldap.service" "caddy.service" ];
+	lldap.serviceAccounts.stalwart.groups = [ "lldap_strict_readonly" ];
+	systemd.services.stalwart.wants = [ "lldap-accounts.service" ];
+	systemd.services.stalwart.after = [ "lldap-accounts.service" "caddy.service" ];
 	systemd.paths.stalwart-certificate = {
 		wantedBy = [ "multi-user.target" ];
 		pathConfig.PathChanged = "${certDir}/${mx}.crt";

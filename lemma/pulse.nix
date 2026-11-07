@@ -136,6 +136,7 @@ in {
 		'';
 		# signs grafana's cookies and encrypts what it stores
 		grafana-secret-key = {};
+		grafana-admin = {};
 	};
 
 	services.prometheus = {
@@ -177,6 +178,8 @@ in {
 
 	services.grafana = {
 		enable = true;
+		# grafana 13 no longer bundles the prometheus data source
+		declarativePlugins = [ pkgs.grafanaPlugins.prometheus ];
 		settings = {
 			server = {
 				http_addr = "127.0.0.1";
@@ -184,12 +187,24 @@ in {
 				domain = pulse;
 				root_url = "https://${pulse}/";
 			};
-			security.secret_key = "$__file{/run/credentials/grafana.service/secret-key}";
+			security = {
+				secret_key = "$__file{/run/credentials/grafana.service/secret-key}";
+				# unusable with disable_login, but never the default either.
+				# only applies when grafana creates its database
+				admin_password = "$__file{/run/credentials/grafana.service/admin}";
+			};
 			analytics = { reporting_enabled = false; check_for_updates = false; };
 
 			# logins only through authelia, and only for lldap_admin, who
-			# administer grafana too
-			auth.disable_login_form = true;
+			# administer grafana too. disable_login switches grafana's own
+			# passwords off entirely: the login form, and basic auth on the
+			# api, where the built-in admin would otherwise answer to the
+			# nixos default admin:admin
+			auth = {
+				disable_login = true;
+				disable_login_form = true;
+			};
+			"auth.basic".enabled = false;
 			"auth.generic_oauth" = {
 				enabled = true;
 				name = "Authelia";
@@ -226,6 +241,7 @@ in {
 	systemd.services.grafana.serviceConfig.LoadCredential = [
 		"oidc:${oidc}"
 		"secret-key:${config.crypt.generated.grafana-secret-key.path}"
+		"admin:${config.crypt.generated.grafana-admin.path}"
 	];
 
 	services.authelia.instances.main.settings.identity_providers.oidc = {

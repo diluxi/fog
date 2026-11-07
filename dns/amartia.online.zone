@@ -17,6 +17,7 @@ mx                  AAAA  2a01:4f8:c2c:e253::1
 mx                  TXT   "v=spf1 a ra=postmaster -all"
 
 mail                CNAME mx.amartia.online.
+r426wwwmiswl        CNAME gv-2ymwtf4wsauqwu.dv.googlehosted.com.
 
 ; policy and reports
 _dmarc              TXT   "v=DMARC1; p=reject; rua=mailto:postmaster@amartia.online; ruf=mailto:postmaster@amartia.online"

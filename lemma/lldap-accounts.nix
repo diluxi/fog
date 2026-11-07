@@ -38,6 +38,14 @@
 		}
 
 		groups=$(gql 'query { groups { id displayName } }' '{}')
+		for g in ${lib.escapeShellArgs cfg.groups}; do
+			jq -e --arg g "$g" '.groups | any(.displayName == $g)' \
+				<<<"$groups" >/dev/null && continue
+			echo "creating group $g"
+			gql 'mutation($n: String!) { createGroup(name: $n) { id } }' \
+				"$(jq -nc --arg n "$g" '{$n}')" >/dev/null
+		done
+		groups=$(gql 'query { groups { id displayName } }' '{}')
 
 		ensure() {
 			local id=$1 password=$2 have g gid
@@ -69,6 +77,13 @@
 			cfg.serviceAccounts)}
 	'';
 in {
+	# groups to create if missing. their members are people, managed in the
+	# ui; only service accounts' memberships are declared
+	options.lldap.groups = lib.mkOption {
+		type = lib.types.listOf lib.types.str;
+		default = [];
+	};
+
 	options.lldap.serviceAccounts = lib.mkOption {
 		description = ''
 			LLDAP accounts for services, each with a password generated on the

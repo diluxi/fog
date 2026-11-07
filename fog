@@ -11,11 +11,17 @@ $0 build [-l]
 $0 plan [-l]
 $0 deploy [-l] [switch|boot|test|dry-activate]
 $0 ratify
+$0 publish <site> <dir>
+$0 sites [rollback <host>]
 $0 pin <name> <owner/repo> <branch>
 $0 tofu ...
 
 -l builds locally and copies the closure to $HOST, whose
    nix-daemon substitutes whatever cache.nixos.org already has
+
+publish signs <dir> with git's gpg.program and user.signingkey, or with
+\$FOG_GPG and \$FOG_KEY; lemma0 decides by the signature whether it goes
+live or to preview.<site>
 EOF
 	exit 1
 }
@@ -74,6 +80,19 @@ deploy() {
 	privileged "$profile exec $sys/bin/switch-to-configuration $action"
 }
 
+# sign "ecdo <site>\n" and the tarball, and send ecdo the signature, then
+# the tarball (lemma/ecdo.nix)
+publish() {
+	[ $# -eq 2 ] && [ -d "$2" ] || usage
+	gpg=${FOG_GPG:-$(git -C "$DIR" config gpg.program || echo gpg)}
+	key=${FOG_KEY-$(git -C "$DIR" config user.signingkey || :)}
+	tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
+	tar -C "$2" -cf "$tmp/tar" .
+	{ printf 'ecdo %s\n' "$1"; cat "$tmp/tar"; } |
+		"$gpg" ${key:+-u "$key"} --detach-sign --armor >"$tmp/sig"
+	cat "$tmp/sig" "$tmp/tar" | ssh "ecdo@$HOST" publish "$1"
+}
+
 pin() {
 	[ $# -eq 3 ] || usage
 	rev=$(git ls-remote "https://github.com/$2" "refs/heads/$3" | cut -f1)
@@ -91,6 +110,8 @@ build) build "$@"; echo ;;
 plan) sys=$(build "$@"); ssh "$HOST" -- nix store diff-closures /run/current-system "$sys" ;;
 deploy) deploy "$@" ;;
 ratify) ssh "$HOST" -- fog ratify ;;
+publish) publish "$@" ;;
+sites) [ $# -gt 0 ] || set -- list; ssh "ecdo@$HOST" "$@" ;;
 pin) pin "$@" ;;
 tofu) TF_VAR_hcloud_token=$(p show com/hetzner | awk '$1=="api:" {print $2}') tofu "$@" ;;
 *) usage ;;

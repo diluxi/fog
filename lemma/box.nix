@@ -29,8 +29,9 @@
 			modes = [ "file_mode=0660" "dir_mode=0770" ]; };
 	};
 	uid.transmission = config.ids.uids.transmission;
-	# fixed, since force_owner takes numbers
-	gid = { seed = 2000; kino = 2001; };
+	# fixed, since force_owner takes numbers: the ones nixos gave these
+	# groups when they were first made, which it won't change afterwards
+	gid = { seed = 983; kino = 984; };
 
 	# smb 3.1.1, encrypted (seal) on the wire too. symlinks are stored as
 	# small files (mfsymlinks); gocryptfs keeps its own symlinks that way,
@@ -51,8 +52,9 @@
 		device = "${cipher}/${name}";
 		fsType = "fuse.gocryptfs";
 		options = [
-			"passfile=${key}" "allow_other" "force_owner=${t.owner}"
-			"_netdev" "nofail"
+			# mount hands gocryptfs everything but nofail, and gocryptfs refuses
+			# what it doesn't know, like _netdev. the cifs mount beneath has it
+			"passfile=${key}" "allow_other" "force_owner=${t.owner}" "nofail"
 			"x-systemd.requires-mounts-for=${cipher}/${name}"
 			"x-systemd.requires=witness0-init.service" "x-systemd.after=witness0-init.service"
 		];

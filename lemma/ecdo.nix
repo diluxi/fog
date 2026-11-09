@@ -20,7 +20,8 @@
 	};
 
 	# names with a vhost of their own, which would shadow a published site
-	reserved = lib.filter (name: builtins.match "[a-z0-9.-]+" name != null)
+	reserved = lib.filter (name: builtins.match "[a-z0-9.-]+" name != null
+		&& !lib.elem name config.ecdo.certified)
 		(lib.attrNames config.services.caddy.virtualHosts);
 
 	# the shell shared by the ssh command and the import from /srv/http
@@ -132,64 +133,87 @@
 		'') seed)}
 	'';
 in {
-	users.groups.ecdo = {};
-	users.users.ecdo = {
-		isSystemUser = true;
-		group = "ecdo";
-		home = state;
-		useDefaultShell = true; # sshd runs the forced command through it
-		# lux's ssh keys may publish, but only signatures decide where to
-		openssh.authorizedKeys.keys = map (key: ''restrict,command="${command}" ${key}'')
-			(builtins.fromJSON (builtins.readFile ../users/keys.json)).lux;
-	};
-
-	# caddy only traverses these; the profiles' gc roots are nix's business
-	systemd.tmpfiles.rules = [
-		"d ${state} 0755 ecdo ecdo -"
-		"d ${sites} 0755 ecdo ecdo -"
-		"d ${state}/stamps 0700 ecdo ecdo -"
-	];
-
-	systemd.services.ecdo-import = {
-		description = "publish what /srv/http held, once per host";
-		wantedBy = [ "multi-user.target" ];
-		after = [ "nix-daemon.socket" "systemd-tmpfiles-setup.service" ];
-		serviceConfig = {
-			Type = "oneshot";
-			User = "ecdo";
-			ExecStart = import;
-		};
-	};
-
-	# one rule for every published host. certificates are issued on the first
-	# visit, but only for hosts that ask says are published
-	services.caddy.globalConfig = ''
-		on_demand_tls {
-			ask http://${ask}/
-		}
-	'';
-	services.caddy.virtualHosts = {
-		"https://".extraConfig = ''
-			tls {
-				on_demand
-			}
-			root * ${sites}/{host}/site
-			file_server
+	options.ecdo.certified = lib.mkOption {
+		description = ''
+			Published hosts whose certificate other services reuse. Each gets a
+			vhost of its own, so caddy keeps its certificate from Let's Encrypt
+			whether or not anyone visits, at a path that doesn't change.
 		'';
-		"http://${ask}" = {
-			listenAddresses = [ "127.0.0.1" ];
-			logFormat = null;
+		type = lib.types.listOf lib.types.str;
+		default = [];
+	};
+
+	config = {
+		users.groups.ecdo = {};
+		users.users.ecdo = {
+			isSystemUser = true;
+			group = "ecdo";
+			home = state;
+			useDefaultShell = true; # sshd runs the forced command through it
+			# lux's ssh keys may publish, but only signatures decide where to
+			openssh.authorizedKeys.keys = map (key: ''restrict,command="${command}" ${key}'')
+				(builtins.fromJSON (builtins.readFile ../users/keys.json)).lux;
+		};
+
+		# caddy only traverses these; the profiles' gc roots are nix's business
+		systemd.tmpfiles.rules = [
+			"d ${state} 0755 ecdo ecdo -"
+			"d ${sites} 0755 ecdo ecdo -"
+			"d ${state}/stamps 0700 ecdo ecdo -"
+		];
+
+		systemd.services.ecdo-import = {
+			description = "publish what /srv/http held, once per host";
+			wantedBy = [ "multi-user.target" ];
+			after = [ "nix-daemon.socket" "systemd-tmpfiles-setup.service" ];
+			serviceConfig = {
+				Type = "oneshot";
+				User = "ecdo";
+				ExecStart = import;
+			};
+		};
+
+		# one rule for every published host. certificates are issued on the first
+		# visit, but only for hosts that ask says are published
+		services.caddy.globalConfig = ''
+			on_demand_tls {
+				ask http://${ask}/
+			}
+		'';
+		services.caddy.virtualHosts = {
+			"https://".extraConfig = ''
+				tls {
+					on_demand
+				}
+				root * ${sites}/{host}/site
+				file_server
+			'';
+			"http://${ask}" = {
+				listenAddresses = [ "127.0.0.1" ];
+				logFormat = null;
+				extraConfig = ''
+					@published {
+						expression {query.domain}.matches("^[a-z0-9.-]+$")
+						file {
+							root ${sites}
+							try_files {query.domain}/site/
+						}
+					}
+					respond @published 200
+					respond 404
+				'';
+			};
+		} // lib.genAttrs config.ecdo.certified (host: {
 			extraConfig = ''
-				@published {
-					expression {query.domain}.matches("^[a-z0-9.-]+$")
-					file {
-						root ${sites}
-						try_files {query.domain}/site/
+				# pin the issuer, so the certificate stays where others look for it
+				tls {
+					issuer acme {
+						dir https://acme-v02.api.letsencrypt.org/directory
 					}
 				}
-				respond @published 200
-				respond 404
+				root * ${sites}/${host}/site
+				file_server
 			'';
-		};
+		});
 	};
 }

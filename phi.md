@@ -126,6 +126,9 @@ switched to, so a rewrite stops deploys until its state is fixed by hand.
   `xmpp`); a mail user's address is the lldap attribute `mailbox`, and
   lldap's `mail` is their contact address. `invite-migrate` moved everyone
   already there into those groups once (stamp in /var/lib/invite).
+- `fog` (`lemma/mail.nix`) is the system's own address, fog@amartia.online:
+  an lldap service account in `mail`. Authelia sends password resets and
+  one-time codes as fog, through Stalwart's submission on loopback.
 
 ### Next, as agreed
 
@@ -136,8 +139,6 @@ switched to, so a rewrite stops deploys until its state is fixed by hand.
    plugin; forward_auth would lock out the TV and phone apps.
 4. vaultwarden SSO through Authelia, gated by a `vault` group, so
    invitations can give a vault too.
-5. Authelia's notifier through Stalwart, so password-reset mail is sent
-   instead of written to a file.
 
 ### Later
 

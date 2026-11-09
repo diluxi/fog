@@ -88,8 +88,10 @@ in {
 			oidcHmacSecretFile = generated "authelia-oidc-hmac";
 			oidcIssuerPrivateKeyFile = generated "authelia-oidc-jwk";
 		};
-		environmentVariables.AUTHELIA_AUTHENTICATION_BACKEND_LDAP_PASSWORD_FILE =
-			"%d/ldap-password";
+		environmentVariables = {
+			AUTHELIA_AUTHENTICATION_BACKEND_LDAP_PASSWORD_FILE = "%d/ldap-password";
+			AUTHELIA_NOTIFIER_SMTP_PASSWORD_FILE = "%d/smtp-password";
+		};
 		settings = {
 			theme = "auto";
 			server.address = "tcp://127.0.0.1:9091/";
@@ -117,8 +119,21 @@ in {
 				authelia_url = "https://${auth}";
 			}];
 			storage.local.path = "/var/lib/authelia-main/db.sqlite3";
-			# no mail until stalwart: read with run0 cat
-			notifier.filesystem.filename = "/var/lib/authelia-main/notifications.txt";
+			# password resets and one-time codes, from fog (lemma/mail.nix)
+			# through stalwart's submission, over loopback but checked
+			# against mx's certificate
+			notifier = {
+				smtp = {
+					address = "submissions://127.0.0.1:465";
+					tls.server_name = "mx.${domain}";
+					username = "fog";
+					sender = "${domain} <fog@${domain}>";
+					subject = "[${domain}] {title}";
+				};
+				# authelia shouldn't refuse to start, and lock everyone out,
+				# because stalwart is down or fog isn't made yet
+				disable_startup_check = true;
+			};
 			totp.issuer = domain;
 		};
 	};
@@ -127,6 +142,7 @@ in {
 		after = [ "lldap-accounts.service" ];
 		serviceConfig.LoadCredential = [
 			"ldap-password:${config.lldap.serviceAccounts.authelia.passwordFile}"
+			"smtp-password:${config.lldap.serviceAccounts.fog.passwordFile}"
 		];
 	};
 

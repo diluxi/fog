@@ -31,9 +31,11 @@
 			"${escape (lib.head at)}(\\+[^@]*)?@${escape (lib.last at)}";
 	in "^(${lib.concatMapStringsSep "|" one addresses})$";
 
-	# lldap accounts that are services, not people: no mailbox, no login
+	# lldap accounts that are services, not people: no mailbox, no login.
+	# except those that send mail themselves, like fog
 	notService = lib.concatMapStrings (uid: "(!(uid=${uid}))")
-		([ "root" ] ++ lib.attrNames config.lldap.serviceAccounts);
+		([ "root" ] ++ lib.attrNames (lib.filterAttrs (_: a: !lib.elem "mail" a.groups)
+			config.lldap.serviceAccounts));
 	# who has mail: members of `mail`, whose address is their `mailbox`.
 	# lldap's own mail is their contact address, for password resets
 	mailUser = "(objectClass=person)(memberOf=cn=mail,ou=groups,${baseDN})${notService}";
@@ -177,6 +179,17 @@ in {
 	};
 
 	networking.firewall.allowedTCPPorts = [ 25 465 587 993 ];
+
+	# a mail user's address, set at signup (lemma/invite.nix); lldap's own
+	# mail is their contact address
+	lldap.userAttributes = [ "mailbox" ];
+
+	# fog: the system's own address, for services that send mail. they log
+	# in to submission as fog, so their mail is signed like anyone's
+	lldap.serviceAccounts.fog = {
+		groups = [ "mail" ];
+		attributes.mailbox = "fog@amartia.online";
+	};
 
 	invite.groups.mail = {
 		label = "Mail";

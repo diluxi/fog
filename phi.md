@@ -115,7 +115,9 @@ switched to, so a rewrite stops deploys until its state is fixed by hand.
   Not yet deployed as of 2026-11-09.
 - transmission (`lemma/torrent.nix`) on torrent.amartia.online for the lldap
   group `torrent`, inside a network namespace whose only way out is
-  mullvad's wireguard. Waits for the `mullvad` secret (a wg-quick file).
+  mullvad's wireguard. The secret is only the account number; lemma0
+  registers its own key and picks relays at runtime, narrowed by
+  `/var/lib/mullvad/prefer`. `systemctl start mullvad-switch` changes relay.
 
 ### Next, as agreed
 

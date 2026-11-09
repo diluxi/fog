@@ -79,8 +79,9 @@
 		];
 		s2s_use_starttls = "required";
 
-		# accounts are lldap's people. ejabberd searches as `ejabberd` (in
-		# lldap_strict_readonly) and checks passwords by binding as the user.
+		# accounts are lldap's people in `xmpp`. ejabberd searches as
+		# `ejabberd` (in lldap_strict_readonly) and checks passwords by binding
+		# as the user.
 		# ldap_password comes from the file written at start
 		auth_method = "ldap";
 		ldap_servers = [ ldap.ldap_host ];
@@ -88,7 +89,7 @@
 		ldap_rootdn = account.dn;
 		ldap_base = "ou=people,${baseDN}";
 		ldap_uids.uid = "%u";
-		ldap_filter = "(&(objectClass=person)${notService})";
+		ldap_filter = "(&(objectClass=person)(memberOf=cn=xmpp,ou=groups,${baseDN})${notService})";
 		include_config_file = "/run/ejabberd/ldap.yml";
 
 		# everything else in sqlite: archives in mnesia break at 2GB
@@ -196,8 +197,17 @@ in {
 
 	ecdo.certified = [ domain ];
 
+	invite.groups.xmpp = {
+		label = "Chat (XMPP)";
+		info = "you are username@${domain}, with any XMPP app; Conversations on Android, "
+			+ "Monal on iOS, Gajim or Dino on a computer";
+	};
+	invite.existing = [ "xmpp" ];
+
 	systemd.services.ejabberd = {
 		wants = [ "lldap-accounts.service" ];
+		# xmpp was everyone's before it was a group; see mail.nix
+		requires = [ "invite-migrate.service" ];
 		after = [ "lldap-accounts.service" "caddy.service" ];
 		serviceConfig = {
 			RuntimeDirectory = "ejabberd";

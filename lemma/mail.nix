@@ -34,6 +34,9 @@
 	# lldap accounts that are services, not people: no mailbox, no login
 	notService = lib.concatMapStrings (uid: "(!(uid=${uid}))")
 		([ "root" ] ++ lib.attrNames config.lldap.serviceAccounts);
+	# who has mail: members of `mail`, whose address is their `mailbox`.
+	# lldap's own mail is their contact address, for password resets
+	mailUser = "(objectClass=person)(memberOf=cn=mail,ou=groups,${baseDN})${notService}";
 
 	# placeholder until the encrypted secret is pasted in its place
 	todo = name: how: throw ''
@@ -132,14 +135,14 @@ in {
 					auth.method = "lookup";
 				};
 				filter = {
-					name = "(&(objectClass=person)(uid=?)${notService})";
-					email = "(&(objectClass=person)(mail=?)${notService})";
+					name = "(&(uid=?)${mailUser})";
+					email = "(&(mailbox=?)${mailUser})";
 				};
 				attributes = {
 					name = "uid";
 					class = "objectClass";
 					description = "cn";
-					email = "mail";
+					email = "mailbox";
 				};
 			};
 
@@ -175,10 +178,23 @@ in {
 
 	networking.firewall.allowedTCPPorts = [ 25 465 587 993 ];
 
+	invite.groups.mail = {
+		label = "Mail";
+		info = "your address is username@amartia.online. Mail apps set themselves up "
+			+ "from it; otherwise IMAP and SMTP are at mx.amartia.online";
+	};
+	# nobody may pick a name that is already someone's alias
+	invite.reserved = lib.concatMap (a: map (address: lib.head (lib.splitString "@" address))
+		a.aliases) (lib.attrValues accounts);
+
 	# a renewed certificate only reaches stalwart through a restart, since
 	# LoadCredential copies it at start
 	lldap.serviceAccounts.stalwart.groups = [ "lldap_strict_readonly" ];
 	systemd.services.stalwart.wants = [ "lldap-accounts.service" ];
+	# mail was everyone's before it was a group. without the migration it
+	# stays down rather than turning people away: senders retry, while a
+	# rejected address bounces
+	systemd.services.stalwart.requires = [ "invite-migrate.service" ];
 	systemd.services.stalwart.after = [ "lldap-accounts.service" "caddy.service" ];
 	systemd.paths.stalwart-certificate = {
 		wantedBy = [ "multi-user.target" ];

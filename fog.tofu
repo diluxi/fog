@@ -6,6 +6,11 @@ terraform {
       # which 1.67 removed. moving to `location` comes before going past it
       version = "~> 1.66.0"
     }
+    # passwords nobody types, for witness0
+    random = {
+      source  = "hashicorp/random"
+      version = "~> 3.7"
+    }
   }
 }
 
@@ -56,18 +61,38 @@ resource "hcloud_server" "lemma0" {
 	}
 }
 
-# storage for lemma0, which has 80GB of its own. storage boxes only exist in
-# fsn1 and hel1; nbg1 is a few milliseconds away. the box's own account
-# reaches nothing; lemma0 mounts through a subaccount that only sees srv/,
-# so a later subaccount (backups, say) stays out of its reach
-variable "storage_box_password" { sensitive = true }
-variable "storage_box_srv_password" { sensitive = true }
+# witness0: storage for lemma0, which has 80GB of its own. storage boxes only
+# exist in fsn1 and hel1; nbg1 is a few milliseconds away. the box's own
+# account reaches nothing; lemma0 mounts through a subaccount that only sees
+# srv/, so a later subaccount (backups, say) stays out of its reach.
+#
+# both passwords are made here and kept only in tofu's state: password logins
+# can't be turned off on a storage box, and nobody types either one.
+# `fog witness` hands the subaccount's to lemma0, encrypted
+resource "random_password" "witness0" {
+	length = 32
+	# hetzner doesn't say what it accepts; plain ascii is known to work
+	override_special = "-_"
+	min_upper = 1
+	min_lower = 1
+	min_numeric = 1
+	min_special = 1
+}
 
-resource "hcloud_storage_box" "media" {
-	name = "media"
+resource "random_password" "witness0_srv" {
+	length = 32
+	override_special = "-_"
+	min_upper = 1
+	min_lower = 1
+	min_numeric = 1
+	min_special = 1
+}
+
+resource "hcloud_storage_box" "witness0" {
+	name = "witness0"
 	storage_box_type = "bx21"
 	location = "fsn1"
-	password = var.storage_box_password
+	password = random_password.witness0.result
 	delete_protection = true
 	access_settings = {
 		samba_enabled = false
@@ -80,12 +105,12 @@ resource "hcloud_storage_box" "media" {
 }
 
 # lemma0's /srv/seed and /srv/kino, as srv/seed and srv/kino on the box
-resource "hcloud_storage_box_subaccount" "srv" {
-	storage_box_id = hcloud_storage_box.media.id
+resource "hcloud_storage_box_subaccount" "witness0_srv" {
+	storage_box_id = hcloud_storage_box.witness0.id
 	name = "srv"
 	description = "lemma0: /srv/seed and /srv/kino"
 	home_directory = "srv"
-	password = var.storage_box_srv_password
+	password = random_password.witness0_srv.result
 	access_settings = {
 		samba_enabled = true
 		ssh_enabled = false
@@ -94,12 +119,16 @@ resource "hcloud_storage_box_subaccount" "srv" {
 	}
 }
 
-# what lemma/box.nix needs to mount it
-output "storage_box_srv" {
+# what lemma/box.nix mounts with, through `fog witness`
+output "witness0_srv" {
 	value = {
-		server = hcloud_storage_box_subaccount.srv.server
-		username = hcloud_storage_box_subaccount.srv.username
+		server = hcloud_storage_box_subaccount.witness0_srv.server
+		username = hcloud_storage_box_subaccount.witness0_srv.username
 	}
+}
+output "witness0_srv_credentials" {
+	sensitive = true
+	value = "username=${hcloud_storage_box_subaccount.witness0_srv.username}\npassword=${random_password.witness0_srv.result}\n"
 }
 
 # dns for every dns/<zone>.zone. the hcloud provider takes no zone files, so

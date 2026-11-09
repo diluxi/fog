@@ -15,6 +15,7 @@ $0 publish <site> <dir>
 $0 sites [rollback <host>]
 $0 pin <name> <owner/repo> <branch>
 $0 tofu ...
+$0 witness
 
 -l builds locally and copies the closure to $HOST, whose
    nix-daemon substitutes whatever cache.nixos.org already has
@@ -22,6 +23,10 @@ $0 tofu ...
 publish signs <dir> with git's gpg.program and user.signingkey, or with
 \$FOG_GPG and \$FOG_KEY; lemma0 decides by the signature whether it goes
 live or to preview.<site>
+
+witness writes where lemma0 mounts witness0 (lemma/witness0.json) and its
+credentials, encrypted to lemma0 and lux (lemma/witness0.asc), from tofu's
+state after an apply; commit both
 EOF
 	exit 1
 }
@@ -104,6 +109,16 @@ pin() {
 	mv "$DIR/pins.json.tmp" "$DIR/pins.json"
 }
 
+# witness0's subaccount for lemma0, from tofu's state into the repository:
+# where it is in the clear, how to log in encrypted
+witness() {
+	tofu -chdir="$DIR" output -json witness0_srv >"$DIR/lemma/witness0.json"
+	tofu -chdir="$DIR" output -raw witness0_srv_credentials |
+		sqop encrypt "$DIR/lemma/certs/lemma0.asc" "$DIR/lemma/certs/lux.asc" \
+		>"$DIR/lemma/witness0.asc"
+	echo "wrote lemma/witness0.json and lemma/witness0.asc; commit both" >&2
+}
+
 cmd=${1-}; [ $# -gt 0 ] && shift
 case $cmd in
 build) build "$@"; echo ;;
@@ -113,6 +128,7 @@ ratify) ssh "$HOST" -- fog ratify ;;
 publish) publish "$@" ;;
 sites) [ $# -gt 0 ] || set -- list; ssh "ecdo@$HOST" "$@" ;;
 pin) pin "$@" ;;
+witness) witness ;;
 tofu) TF_VAR_hcloud_token=$(p show com/hetzner | awk '$1=="api:" {print $2}') tofu "$@" ;;
 *) usage ;;
 esac

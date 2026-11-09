@@ -1,22 +1,17 @@
 { config, lib, pkgs, ... }: let
-	# the storage box's srv subaccount (fog.tofu), from `tofu output storage_box_srv`
-	box = todo "box.server and box.username" ''
-		tofu apply, then fill both in from `tofu output storage_box_srv`'';
+	# witness0, the storage box (fog.tofu), through its srv subaccount. both
+	# files come from `./fog witness` after `./fog tofu apply`
+	ready = builtins.pathExists ./witness0.json && builtins.pathExists ./witness0.asc;
+	box = if ready then builtins.fromJSON (builtins.readFile ./witness0.json)
+		else throw "lemma/witness0.{json,asc} are missing: ./fog tofu apply, then ./fog witness";
 	share = "//${box.server}/${box.username}";
-	credentials = config.crypt.secrets.box-srv.path;
-
-	# placeholder until the value is filled in
-	todo = name: how: throw ''
-		${name} is missing.
-			${how}
-	'';
+	credentials = config.crypt.secrets.witness0-srv.path;
 
 	# smb 3.1.1, encrypted (seal) even inside hetzner's network. symlinks
 	# are stored as small files on the box (mfsymlinks), which is how kino
 	# links to what seed holds. a box that's down doesn't stop the boot
 	common = [
 		"credentials=${credentials}"
-		"username=${box.username}"
 		"vers=3.1.1" "seal" "mfsymlinks" "iocharset=utf8"
 		"_netdev" "nofail" "x-systemd.mount-timeout=30s"
 		"x-systemd.requires=box-dirs.service" "x-systemd.after=box-dirs.service"
@@ -29,10 +24,10 @@
 		options = common ++ perms;
 	};
 in {
-	# the subaccount's password, as a cifs credentials file
-	crypt.secrets.box-srv.text = todo "crypt.secrets.box-srv" ''
-		printf 'password=%s\n' "$the_subaccount_password" | sqop encrypt \
-			lemma/certs/lemma0.asc lemma/certs/lux.asc'';
+	# the subaccount's username and generated password, as a cifs
+	# credentials file
+	crypt.secrets.witness0-srv.text = if ready then builtins.readFile ./witness0.asc
+		else box;
 
 	boot.supportedFilesystems = [ "cifs" ];
 
@@ -54,7 +49,7 @@ in {
 
 	# a mount of a directory needs it to exist on the box first
 	systemd.services.box-dirs = {
-		description = "directories on the storage box for /srv";
+		description = "directories on witness0 for /srv";
 		after = [ "network-online.target" ];
 		wants = [ "network-online.target" ];
 		path = with pkgs; [ cifs-utils util-linux coreutils ];
@@ -65,8 +60,7 @@ in {
 		script = ''
 			dir=$(mktemp -d)
 			mount -t cifs ${share} "$dir" -o ${lib.concatStringsSep "," [
-				"credentials=${credentials}" "username=${box.username}"
-				"vers=3.1.1" "seal"
+				"credentials=${credentials}" "vers=3.1.1" "seal"
 			]}
 			trap 'umount "$dir"; rmdir "$dir"' EXIT
 			mkdir -p "$dir/seed/video" "$dir/kino"

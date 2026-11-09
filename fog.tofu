@@ -2,7 +2,9 @@ terraform {
   required_providers {
     hcloud = {
       source  = "hetznercloud/hcloud"
-      version = "~> 1.45"
+      # 1.66: storage boxes with named subaccounts, and still `datacenter`,
+      # which 1.67 removed. moving to `location` comes before going past it
+      version = "~> 1.66.0"
     }
   }
 }
@@ -51,6 +53,52 @@ resource "hcloud_server" "lemma0" {
 	lifecycle {
 		ignore_changes = [datacenter]
 		prevent_destroy = true
+	}
+}
+
+# storage for lemma0, which has 80GB of its own. storage boxes only exist in
+# fsn1 and hel1; nbg1 is a few milliseconds away. the box's own account
+# reaches nothing; lemma0 mounts through a subaccount that only sees srv/,
+# so a later subaccount (backups, say) stays out of its reach
+variable "storage_box_password" { sensitive = true }
+variable "storage_box_srv_password" { sensitive = true }
+
+resource "hcloud_storage_box" "media" {
+	name = "media"
+	storage_box_type = "bx21"
+	location = "fsn1"
+	password = var.storage_box_password
+	delete_protection = true
+	access_settings = {
+		samba_enabled = false
+		ssh_enabled = false
+		webdav_enabled = false
+		zfs_enabled = false # no .zfs in jellyfin's libraries
+		reachable_externally = false
+	}
+	lifecycle { prevent_destroy = true }
+}
+
+# lemma0's /srv/seed and /srv/kino, as srv/seed and srv/kino on the box
+resource "hcloud_storage_box_subaccount" "srv" {
+	storage_box_id = hcloud_storage_box.media.id
+	name = "srv"
+	description = "lemma0: /srv/seed and /srv/kino"
+	home_directory = "srv"
+	password = var.storage_box_srv_password
+	access_settings = {
+		samba_enabled = true
+		ssh_enabled = false
+		webdav_enabled = false
+		reachable_externally = false
+	}
+}
+
+# what lemma/box.nix needs to mount it
+output "storage_box_srv" {
+	value = {
+		server = hcloud_storage_box_subaccount.srv.server
+		username = hcloud_storage_box_subaccount.srv.username
 	}
 }
 

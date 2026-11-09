@@ -110,14 +110,22 @@ switched to, so a rewrite stops deploys until its state is fixed by hand.
   `./fog sites` lists, `./fog sites rollback <host>` rolls back.
   `ecdo.certified` hosts get a vhost of their own, so their certificate
   always exists at a fixed path for other services to reuse.
-- ejabberd (`lemma/xmpp.nix`) serves amartia.online: lldap's people, state in
-  sqlite, conference/pubsub/upload components, certificates from caddy.
-  Not yet deployed as of 2026-11-09.
+- ejabberd (`lemma/xmpp.nix`) serves amartia.online to the lldap group
+  `xmpp`: state in sqlite, conference/pubsub/upload components, certificates
+  from caddy, and FAST tokens, since LDAP auth only allows PLAIN and
+  Conversations requires channel binding.
 - transmission (`lemma/torrent.nix`) on torrent.amartia.online for the lldap
   group `torrent`, inside a network namespace whose only way out is
   mullvad's wireguard. The secret is only the account number; lemma0
   registers its own key and picks relays at runtime, narrowed by
   `/var/lib/mullvad/prefer`. `systemctl start mullvad-switch` changes relay.
+- Invitations (`lemma/invite.nix`, Go in `lemma/invite/`): lldap_admin
+  makes single-use links at invite.amartia.online/new for groups that
+  modules declare in `invite.groups`; the invitee picks a username, a
+  contact address and a password. Mail and xmpp are groups now (`mail`,
+  `xmpp`); a mail user's address is the lldap attribute `mailbox`, and
+  lldap's `mail` is their contact address. `invite-migrate` moved everyone
+  already there into those groups once (stamp in /var/lib/invite).
 
 ### Next, as agreed
 
@@ -126,7 +134,10 @@ switched to, so a rewrite stops deploys until its state is fixed by hand.
 2. Grafana (Prometheus, node-exporter) with OIDC through Authelia.
 3. kino (Jellyfin) to amartia.online, with SSO through its OIDC or LDAP
    plugin; forward_auth would lock out the TV and phone apps.
-4. Invite codes for new users, against LLDAP's GraphQL API.
+4. vaultwarden SSO through Authelia, gated by a `vault` group, so
+   invitations can give a vault too.
+5. Authelia's notifier through Stalwart, so password-reset mail is sent
+   instead of written to a file.
 
 ### Later
 

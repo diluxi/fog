@@ -38,7 +38,7 @@
 		}
 
 		groups=$(gql 'query { groups { id displayName } }' '{}')
-		for g in ${lib.escapeShellArgs cfg.groups}; do
+		for g in ${lib.escapeShellArgs (lib.unique cfg.groups)}; do
 			jq -e --arg g "$g" '.groups | any(.displayName == $g)' \
 				<<<"$groups" >/dev/null && continue
 			echo "creating group $g"

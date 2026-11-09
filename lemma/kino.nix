@@ -63,6 +63,10 @@ in {
 	# who may watch: members of `kino`, added in lldap's ui. lldap_admin
 	# members become jellyfin admins
 	lldap.groups = [ "kino" ];
+	invite.groups.kino = {
+		label = "Kino";
+		info = "films and series at https://${kino}, in a browser or the Jellyfin apps";
+	};
 	lldap.serviceAccounts.jellyfin.groups = [ "lldap_strict_readonly" ];
 
 	systemd.services.jellyfin = {

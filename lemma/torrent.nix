@@ -235,6 +235,10 @@ in {
 
 	# who may: members of `torrent`, added in lldap's ui
 	lldap.groups = [ "torrent" ];
+	invite.groups.torrent = {
+		label = "Torrents";
+		info = "https://${torrent}, after a second factor you set up on first login";
+	};
 	services.authelia.instances.main.settings.access_control.rules = [{
 		domain = torrent;
 		subject = [ "group:torrent" ];

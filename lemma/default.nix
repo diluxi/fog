@@ -12,6 +12,7 @@
 		./deploy.nix
 		./id.nix
 		./lldap-accounts.nix
+		./invite.nix
 		./vault.nix
 		./mail.nix
 		./pulse.nix

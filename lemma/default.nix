@@ -6,6 +6,7 @@
 		./net.nix
 		./dn42.nix
 		./kino.nix
+		./xmpp.nix
 		./phi.nix
 		./deploy.nix
 		./id.nix

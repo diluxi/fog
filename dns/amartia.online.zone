@@ -23,12 +23,15 @@ r426wwwmiswl        CNAME gv-2ymwtf4wsauqwu.dv.googlehosted.com.
 _dmarc              TXT   "v=DMARC1; p=reject; rua=mailto:postmaster@amartia.online; ruf=mailto:postmaster@amartia.online"
 _smtp._tls          TXT   "v=TLSRPTv1; rua=mailto:postmaster@amartia.online"
 
-; client discovery (rfc 6186, 8314, 6764)
+; client discovery (rfc 6186, 8314, 6764, 6120, xep-0368)
 _imaps._tcp         SRV   0 1 993 mx.amartia.online.
 _submissions._tcp   SRV   0 1 465 mx.amartia.online.
 _submission._tcp    SRV   0 1 587 mx.amartia.online.
 _caldavs._tcp       SRV   0 1 443 mx.amartia.online.
 _carddavs._tcp      SRV   0 1 443 mx.amartia.online.
+_xmpp-client._tcp   SRV   0 1 5222 amartia.online.
+_xmpps-client._tcp  SRV   0 1 5223 amartia.online.
+_xmpp-server._tcp   SRV   0 1 5269 amartia.online.
 
 ; stalwart's dkim keys, from "view dns records" on the domain
 202611e._domainkey  TXT   "v=DKIM1; k=ed25519; h=sha256; p=mYApLwASTd3LTvSsMpd4Zm1/Di8i4s0qPZ4zRb6xabM="

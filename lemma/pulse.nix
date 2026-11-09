@@ -53,8 +53,8 @@
 
 	wan = ''device="enp1s0"'';
 	root = ''mountpoint="/"'';
-	# lemma0's own disks, not witness0 or memory
-	local = ''fstype!~"tmpfs|ramfs|vfat|cifs"'';
+	# lemma0's own disks, not witness0 (cifs, and gocryptfs on top) or memory
+	local = ''fstype!~"tmpfs|ramfs|vfat|cifs|fuse.*"'';
 	# witness0, the storage box, is mounted three times (lemma/box.nix); all
 	# three report the whole box, so any one will do
 	witness = metric: "max(${metric}{fstype=\"cifs\"})";
@@ -83,9 +83,10 @@
 				(stat "mail queue" "short" [ (query "queue_count" "") ])
 				(gauge "witness0" [ (query
 					"1 - ${witness "node_filesystem_avail_bytes"} / ${witness "node_filesystem_size_bytes"}" "") ])
-				# 3 when /srv/seed, /srv/seed/video and /srv/kino are all there
+				# 3 when /srv/seed, /srv/seed/video and /srv/kino are all there,
+				# counting the decrypted views, which need the cifs beneath
 				(stat "witness0 mounts" "short" [ (query
-					''count(node_filesystem_size_bytes{fstype="cifs"}) or vector(0)'' "") ])
+					''count(node_filesystem_size_bytes{fstype="fuse.gocryptfs"}) or vector(0)'' "") ])
 			])
 			(row 4 8 [
 				(graph "traffic" "bps" [

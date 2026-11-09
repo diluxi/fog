@@ -10,12 +10,28 @@
 	upload = "upload.${domain}";
 	http = "127.0.0.1:5280";
 
-	# caddy obtains every certificate; ejabberd reads them through
-	# LoadCredential. amartia.online's own is ecdo's (ecdo.certified)
+	# caddy obtains every certificate, and ejabberd gets copies at start.
+	# amartia.online's own is ecdo's (ecdo.certified)
 	certDir = "${config.services.caddy.dataDir}/.local/share/caddy/"
 		+ "certificates/acme-v02.api.letsencrypt.org-directory";
 	names = [ domain ] ++ components;
-	creds = "/run/credentials/ejabberd.service";
+	certs = "/run/ejabberd/certs";
+
+	# not LoadCredential: a missing source fails the unit before anything
+	# runs, and on a fresh system caddy has yet to obtain them. this waits
+	# for caddy instead, as root, since caddy's directory is its own
+	copyCerts = pkgs.writeShellScript "ejabberd-certs" ''
+		set -eu
+		install -d -m 700 -o ejabberd -g ejabberd ${certs}
+		for name in ${lib.escapeShellArgs names}; do
+			src=${certDir}/$name/$name
+			if [ ! -e "$src.key" ]; then
+				echo "waiting for caddy's certificate for $name"
+				until [ -e "$src.key" ]; do sleep 2; done
+			fi
+			install -m 600 -o ejabberd -g ejabberd "$src.crt" "$src.key" ${certs}/
+		done
+	'';
 
 	# lldap accounts that are services, not people: no login
 	notService = lib.concatMapStrings (uid: "(!(uid=${uid}))")
@@ -24,7 +40,7 @@
 	settings = {
 		hosts = [ domain ];
 		loglevel = "info";
-		certfiles = [ "${creds}/*.crt" "${creds}/*.key" ];
+		certfiles = [ "${certs}/*.crt" "${certs}/*.key" ];
 
 		listen = [
 			{
@@ -182,11 +198,13 @@ in {
 		serviceConfig = {
 			RuntimeDirectory = "ejabberd";
 			RuntimeDirectoryMode = "0700";
-			LoadCredential = [ "ldap:${account.passwordFile}" ]
-				++ lib.concatMap (name: [
-					"${name}.crt:${certDir}/${name}/${name}.crt"
-					"${name}.key:${certDir}/${name}/${name}.key"
-				]) names;
+			LoadCredential = [ "ldap:${account.passwordFile}" ];
+			ExecStartPre = [ "+${copyCerts}" ];
+			# caddy's first certificates take a moment; if they take longer,
+			# try again rather than stay down
+			TimeoutStartSec = "3min";
+			Restart = "on-failure";
+			RestartSec = "1min";
 		};
 		# the password is hex, so it needs no escaping in yaml
 		preStart = ''
@@ -195,8 +213,8 @@ in {
 		'';
 	};
 
-	# a renewed certificate only reaches ejabberd through a restart, since
-	# LoadCredential copies it at start
+	# a renewed certificate only reaches ejabberd through a restart, which
+	# copies it again
 	systemd.paths.ejabberd-certificate = {
 		wantedBy = [ "multi-user.target" ];
 		pathConfig.PathChanged = map (name: "${certDir}/${name}/${name}.crt") names;

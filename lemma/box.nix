@@ -1,54 +1,88 @@
 { config, lib, pkgs, ... }: let
-	# witness0, the storage box (fog.tofu), through its srv subaccount. both
+	# witness0, the storage box (fog.tofu), through its srv subaccount. the
 	# files come from `./fog witness` after `./fog tofu apply`
-	ready = builtins.pathExists ./witness0.json && builtins.pathExists ./witness0.asc;
+	ready = lib.all builtins.pathExists [ ./witness0.json ./witness0.asc ./witness0-key.asc ];
 	box = if ready then builtins.fromJSON (builtins.readFile ./witness0.json)
-		else throw "lemma/witness0.{json,asc} are missing: ./fog tofu apply, then ./fog witness";
+		else throw "lemma/witness0{.json,.asc,-key.asc} are missing: ./fog tofu apply, then ./fog witness";
 	share = "//${box.server}/${box.username}";
 	credentials = config.crypt.secrets.witness0-srv.path;
+	key = config.crypt.secrets.witness0-key.path;
 
-	# smb 3.1.1, encrypted (seal) even inside hetzner's network. symlinks
-	# are stored as small files on the box (mfsymlinks), which is how kino
-	# links to what seed holds. a box that's down doesn't stop the boot
-	common = [
-		"credentials=${credentials}"
-		"vers=3.1.1" "seal" "mfsymlinks" "iocharset=utf8"
-		"_netdev" "nofail" "x-systemd.mount-timeout=30s"
-		"x-systemd.requires=box-dirs.service" "x-systemd.after=box-dirs.service"
-	];
-	# cifs shows one owner and one mode per mount, so each tree is its own
-	# mount, with its own
-	mount = dir: perms: {
-		device = "${share}/${dir}";
+	# what's on the box is encrypted (gocryptfs), so it shows hetzner neither
+	# names nor contents; it does show sizes and the shape of the trees. each
+	# tree is its own gocryptfs directory under srv/cipher/ on the box, its
+	# own cifs mount under ${cipher}, where only root reaches, and its own
+	# plain view under /srv. a gocryptfs view shows the modes of the mount
+	# beneath it, which cifs fixes per mount, so the modes are set there and
+	# the owners on top (force_owner)
+	cipher = "/var/lib/witness0";
+	trees = {
+		# what transmission seeds, of every kind. its directories can be
+		# passed through (771), so jellyfin reaches video/ and lists nothing
+		seed = { at = "/srv/seed"; owner = "${toString uid.transmission}:${toString gid.seed}";
+			modes = [ "file_mode=0660" "dir_mode=0771" ]; };
+		# what kino links to, readable by kino
+		video = { at = "/srv/seed/video"; owner = "${toString uid.transmission}:${toString gid.kino}";
+			modes = [ "file_mode=0640" "dir_mode=0750" ]; };
+		# jellyfin's libraries, mostly links into seed/video
+		kino = { at = "/srv/kino"; owner = "0:${toString gid.kino}";
+			modes = [ "file_mode=0660" "dir_mode=0770" ]; };
+	};
+	uid.transmission = config.ids.uids.transmission;
+	# fixed, since force_owner takes numbers
+	gid = { seed = 2000; kino = 2001; };
+
+	# smb 3.1.1, encrypted (seal) on the wire too. symlinks are stored as
+	# small files (mfsymlinks); gocryptfs keeps its own symlinks that way,
+	# which is how kino links into video. a box that's down doesn't stop the
+	# boot
+	cifs = name: t: {
+		device = "${share}/cipher/${name}";
 		fsType = "cifs";
-		options = common ++ perms;
+		options = [
+			"credentials=${credentials}"
+			"vers=3.1.1" "seal" "mfsymlinks" "iocharset=utf8"
+			"uid=0" "gid=0"
+			"_netdev" "nofail" "x-systemd.mount-timeout=30s"
+			"x-systemd.requires=witness0-dirs.service" "x-systemd.after=witness0-dirs.service"
+		] ++ t.modes;
+	};
+	plain = name: t: {
+		device = "${cipher}/${name}";
+		fsType = "fuse.gocryptfs";
+		options = [
+			"passfile=${key}" "allow_other" "force_owner=${t.owner}"
+			"_netdev" "nofail"
+			"x-systemd.requires-mounts-for=${cipher}/${name}"
+			"x-systemd.requires=witness0-init.service" "x-systemd.after=witness0-init.service"
+		];
 	};
 in {
 	# the subaccount's username and generated password, as a cifs
 	# credentials file
-	crypt.secrets.witness0-srv.text = if ready then builtins.readFile ./witness0.asc
-		else box;
+	crypt.secrets.witness0-srv.text = if ready then builtins.readFile ./witness0.asc else box;
+	# gocryptfs' password. losing it loses everything on the box: it lives
+	# here, encrypted to lemma0 and lux, and nowhere else
+	crypt.secrets.witness0-key.text = if ready then builtins.readFile ./witness0-key.asc else box;
 
 	boot.supportedFilesystems = [ "cifs" ];
+	system.fsPackages = [ pkgs.gocryptfs pkgs.fuse3 ];
 
-	# /srv/seed: what transmission seeds, of every kind. its directories can
-	# be passed through (771), so jellyfin reaches video/ without listing
-	# anything else. /srv/seed/video: what kino links to, readable by kino.
-	# /srv/kino: jellyfin's libraries, of links into seed/video mostly
-	users.groups.seed = {};
-	users.groups.kino = {};
+	users.groups.seed.gid = gid.seed;
+	users.groups.kino.gid = gid.kino;
 	users.users.lux.extraGroups = [ "seed" "kino" ];
 	users.users.jellyfin.extraGroups = [ "kino" ];
 
-	fileSystems."/srv/seed" = mount "seed"
-		[ "uid=transmission" "gid=seed" "file_mode=0660" "dir_mode=0771" ];
-	fileSystems."/srv/seed/video" = mount "seed/video"
-		[ "uid=transmission" "gid=kino" "file_mode=0640" "dir_mode=0750" ];
-	fileSystems."/srv/kino" = mount "kino"
-		[ "uid=root" "gid=kino" "file_mode=0660" "dir_mode=0770" ];
+	# traversable, so the node exporter can stat the mounts beneath; what
+	# they hold is ciphertext, owned by root
+	systemd.tmpfiles.rules = [ "d ${cipher} 0711 root root -" ];
 
-	# a mount of a directory needs it to exist on the box first
-	systemd.services.box-dirs = {
+	fileSystems = lib.mapAttrs' (name: t: lib.nameValuePair "${cipher}/${name}" (cifs name t)) trees
+		// lib.mapAttrs' (name: t: lib.nameValuePair t.at (plain name t)) trees;
+
+	# a mount of a directory needs it to exist on the box first. the plain
+	# directories the first version of this made go, if they're still empty
+	systemd.services.witness0-dirs = {
 		description = "directories on witness0 for /srv";
 		after = [ "network-online.target" ];
 		wants = [ "network-online.target" ];
@@ -59,11 +93,27 @@ in {
 		};
 		script = ''
 			dir=$(mktemp -d)
-			mount -t cifs ${share} "$dir" -o ${lib.concatStringsSep "," [
-				"credentials=${credentials}" "vers=3.1.1" "seal"
-			]}
+			mount -t cifs ${share} "$dir" -o credentials=${credentials},vers=3.1.1,seal
 			trap 'umount "$dir"; rmdir "$dir"' EXIT
-			mkdir -p "$dir/seed/video" "$dir/kino"
+			mkdir -p ${lib.concatMapStringsSep " " (n: "\"$dir/cipher/${n}\"") (lib.attrNames trees)}
+			rmdir "$dir/seed/video" "$dir/seed" "$dir/kino" 2>/dev/null || true
 		'';
+	};
+
+	# each tree becomes a gocryptfs directory the first time, with the key
+	systemd.services.witness0-init = {
+		description = "gocryptfs directories on witness0";
+		unitConfig.RequiresMountsFor = map (n: "${cipher}/${n}") (lib.attrNames trees);
+		path = [ pkgs.gocryptfs ];
+		serviceConfig = {
+			Type = "oneshot";
+			RemainAfterExit = true;
+		};
+		script = lib.concatMapStrings (n: ''
+			if [ ! -e ${cipher}/${n}/gocryptfs.conf ]; then
+				echo "making ${n} a gocryptfs directory"
+				gocryptfs -init -q -passfile ${key} ${cipher}/${n}
+			fi
+		'') (lib.attrNames trees);
 	};
 }

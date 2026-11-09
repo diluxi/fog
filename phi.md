@@ -134,10 +134,14 @@ switched to, so a rewrite stops deploys until its state is fixed by hand.
 - Storage: witness0, a Hetzner storage box (`fog.tofu`, bx21 in fsn1),
   mounted over SMB 3.1.1 by its `srv` subaccount (`lemma/box.nix`). Tofu
   generates both passwords; `./fog witness` writes the mount's server and
-  the encrypted credentials to `lemma/witness0.{json,asc}`: `/srv/seed` is what
-  transmission seeds, sorted by kind; `/srv/seed/video` is what kino may
-  link to; `/srv/kino` holds Jellyfin's libraries, mostly symlinks into
-  seed/video (`mfsymlinks`). Partial torrents stay in /var/lib.
+  the encrypted credentials to `lemma/witness0.{json,asc}`, and once the
+  gocryptfs key, `lemma/witness0-key.asc`: everything on the box is
+  encrypted (names and contents; sizes show), each tree its own gocryptfs
+  directory under srv/cipher/, mounted root-only at /var/lib/witness0/<tree>
+  and decrypted at: `/srv/seed`, what transmission seeds, sorted by kind;
+  `/srv/seed/video`, what kino may link to; `/srv/kino`, Jellyfin's
+  libraries, mostly symlinks into seed/video (`mfsymlinks`). Partial
+  torrents stay in /var/lib. Losing the key loses the box.
 
 ### Next, as agreed
 

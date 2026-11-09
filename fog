@@ -26,7 +26,8 @@ live or to preview.<site>
 
 witness writes where lemma0 mounts witness0 (lemma/witness0.json) and its
 credentials, encrypted to lemma0 and lux (lemma/witness0.asc), from tofu's
-state after an apply; commit both
+state after an apply, and once, the key everything on witness0 is encrypted
+with (lemma/witness0-key.asc); commit them. losing that key loses witness0
 EOF
 	exit 1
 }
@@ -116,7 +117,14 @@ witness() {
 	tofu -chdir="$DIR" output -raw witness0_srv_credentials |
 		sqop encrypt "$DIR/lemma/certs/lemma0.asc" "$DIR/lemma/certs/lux.asc" \
 		>"$DIR/lemma/witness0.asc"
-	echo "wrote lemma/witness0.json and lemma/witness0.asc; commit both" >&2
+	# made once and never replaced: what's on witness0 is encrypted with it
+	if [ ! -e "$DIR/lemma/witness0-key.asc" ]; then
+		head -c 48 /dev/urandom | base64 | tr -d '\n' |
+			sqop encrypt "$DIR/lemma/certs/lemma0.asc" "$DIR/lemma/certs/lux.asc" \
+			>"$DIR/lemma/witness0-key.asc"
+		echo "made lemma/witness0-key.asc; without it, witness0 can't be read" >&2
+	fi
+	echo "wrote lemma/witness0.json and lemma/witness0.asc; commit them" >&2
 }
 
 cmd=${1-}; [ $# -gt 0 ] && shift

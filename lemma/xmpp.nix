@@ -131,6 +131,10 @@
 		# bosh, mqtt, proxy65 and stun
 		modules = {
 			mod_adhoc = {};
+			# fast (xep-0484): after one login with the password, clients log
+			# in with a token bound to the tls channel. ldap only ever sees
+			# plaintext, so this is the only channel binding ejabberd can offer
+			mod_auth_fast = {};
 			mod_admin_extra = {};
 			mod_announce.access = "announce";
 			mod_avatar = {};

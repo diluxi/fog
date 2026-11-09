@@ -7,6 +7,7 @@
 		./dn42.nix
 		./kino.nix
 		./xmpp.nix
+		./torrent.nix
 		./phi.nix
 		./deploy.nix
 		./id.nix

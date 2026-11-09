@@ -127,8 +127,10 @@ switched to, so a rewrite stops deploys until its state is fixed by hand.
   lldap's `mail` is their contact address. `invite-migrate` moved everyone
   already there into those groups once (stamp in /var/lib/invite).
 - `fog` (`lemma/mail.nix`) is the system's own address, fog@amartia.online:
-  an lldap service account in `mail`. Authelia sends password resets and
-  one-time codes as fog, through Stalwart's submission on loopback.
+  an lldap service account in `mail`, and postmaster@, abuse@ and root@
+  amartia.online are its aliases, so domain reports land there and not in
+  lux's personal mailbox. Authelia sends password resets and one-time codes
+  as fog, through Stalwart's submission on loopback.
 
 ### Next, as agreed
 

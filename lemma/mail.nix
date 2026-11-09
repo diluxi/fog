@@ -16,8 +16,13 @@
 	accounts = {
 		lux = {
 			address = "lux@amartia.online";
-			aliases = map (local: "${local}@amartia.online")
-				[ "dilux" "rea" "gaia" "root" "postmaster" "abuse" ];
+			aliases = map (local: "${local}@amartia.online") [ "dilux" "rea" "gaia" ];
+		};
+		# the administrative mailbox, kept apart from anyone's own: domain
+		# reports (dmarc, tls-rpt), abuse complaints and the system's mail
+		fog = {
+			address = "fog@amartia.online";
+			aliases = map (local: "${local}@amartia.online") [ "postmaster" "abuse" "root" ];
 		};
 		cpli = {
 			address = "cpli@cpli.dev";

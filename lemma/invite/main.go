@@ -87,15 +87,7 @@ func main() {
 	if err := os.MkdirAll(filepath.Join(cfg.StateDir, "used"), 0o700); err != nil {
 		log.Fatal(err)
 	}
-	// once migrated, there's nothing to wait for lldap for
-	if _, err := os.Stat(filepath.Join(cfg.StateDir, "migrated")); err == nil &&
-		flag.Arg(0) == "migrate" {
-		return
-	}
-	if err := ensureSchema(); err != nil {
-		log.Fatal(err)
-	}
-
+	// mailbox, the attribute both commands use, is lldap-accounts' to make
 	switch flag.Arg(0) {
 	case "migrate":
 		if err := migrate(); err != nil {
@@ -154,29 +146,6 @@ func gql(query string, vars any, out any) error {
 		return json.Unmarshal(r.Data, out)
 	}
 	return nil
-}
-
-// the mailbox attribute: an account's address on this server, which
-// stalwart reads. lldap's own mail is the person's contact address
-func ensureSchema() error {
-	var r struct {
-		Schema struct {
-			UserSchema struct {
-				Attributes []struct{ Name string }
-			}
-		}
-	}
-	if err := gql(`{ schema { userSchema { attributes { name } } } }`, nil, &r); err != nil {
-		return err
-	}
-	for _, a := range r.Schema.UserSchema.Attributes {
-		if a.Name == "mailbox" {
-			return nil
-		}
-	}
-	log.Print("adding the mailbox attribute")
-	return gql(`mutation { addUserAttribute(name: "mailbox", attributeType: STRING,
-		isList: false, isVisible: true, isEditable: false) { ok } }`, nil, nil)
 }
 
 func groupIDs() (map[string]int, error) {
@@ -592,6 +561,9 @@ func serve() {
 // lldap address is local get it as their mailbox
 func migrate() error {
 	stamp := filepath.Join(cfg.StateDir, "migrated")
+	if _, err := os.Stat(stamp); err == nil {
+		return nil
+	}
 	var r struct {
 		Users []struct {
 			ID, Email  string

@@ -11,8 +11,10 @@
 	# provisioner logs in with it
 	root = config.crypt.generated.lldap-root.path;
 
-	account = name: groups: ''
-		ensure ${lib.escapeShellArgs ([ name cfg.serviceAccounts.${name}.passwordFile ] ++ groups)}
+	account = name: a: ''
+		ensure ${lib.escapeShellArgs ([ name a.passwordFile
+			(builtins.toJSON (lib.mapAttrsToList (n: v: { name = n; value = [ v ]; }) a.attributes))
+		] ++ a.groups)}
 	'';
 
 	# makes each account exist, puts it in its groups (never takes it out of
@@ -37,6 +39,16 @@
 				jq -ce 'if .errors then error(.errors[0].message) else .data end'
 		}
 
+		schema=$(gql 'query { schema { userSchema { attributes { name } } } }' '{}')
+		for a in ${lib.escapeShellArgs cfg.userAttributes}; do
+			jq -e --arg a "$a" '.schema.userSchema.attributes | any(.name == $a)' \
+				<<<"$schema" >/dev/null && continue
+			echo "adding the user attribute $a"
+			gql 'mutation($n: String!) { addUserAttribute(name: $n, attributeType: STRING,
+				isList: false, isVisible: true, isEditable: false) { ok } }' \
+				"$(jq -nc --arg n "$a" '{$n}')" >/dev/null
+		done
+
 		groups=$(gql 'query { groups { id displayName } }' '{}')
 		for g in ${lib.escapeShellArgs (lib.unique cfg.groups)}; do
 			jq -e --arg g "$g" '.groups | any(.displayName == $g)' \
@@ -48,8 +60,8 @@
 		groups=$(gql 'query { groups { id displayName } }' '{}')
 
 		ensure() {
-			local id=$1 password=$2 have g gid
-			shift 2
+			local id=$1 password=$2 attributes=$3 have g gid
+			shift 3
 			if ! have=$(gql 'query($id: String!) {
 				user(userId: $id) { groups { displayName } }
 			}' "$(jq -nc --arg id "$id" '{$id}')" 2>/dev/null); then
@@ -69,17 +81,28 @@
 					addUserToGroup(userId: $u, groupId: $g) { ok }
 				}' "$(jq -nc --arg u "$id" --argjson g "$gid" '{$u, $g}')" >/dev/null
 			done
+			if [ "$attributes" != "[]" ]; then
+				gql 'mutation($u: UpdateUserInput!) { updateUser(user: $u) { ok } }' \
+					"$(jq -nc --arg id "$id" --argjson a "$attributes" \
+						'{u: {id: $id, insertAttributes: $a}}')" >/dev/null
+			fi
 			ldappasswd -x -H ${ldap} -D uid=root,${people} -y ${root} \
 				-T "$password" "uid=$id,${people}"
 		}
 
-		${lib.concatStrings (lib.mapAttrsToList (name: a: account name a.groups)
-			cfg.serviceAccounts)}
+		${lib.concatStrings (lib.mapAttrsToList account cfg.serviceAccounts)}
 	'';
 in {
 	# groups to create if missing. their members are people, managed in the
 	# ui; only service accounts' memberships are declared
 	options.lldap.groups = lib.mkOption {
+		type = lib.types.listOf lib.types.str;
+		default = [];
+	};
+
+	# custom user attributes to create if missing: single strings, set by
+	# admins and services, not by the users themselves
+	options.lldap.userAttributes = lib.mkOption {
 		type = lib.types.listOf lib.types.str;
 		default = [];
 	};
@@ -97,6 +120,11 @@ in {
 					type = lib.types.listOf lib.types.str;
 					default = [];
 					example = [ "lldap_strict_readonly" ];
+				};
+				attributes = lib.mkOption {
+					description = "Custom attributes (lldap.userAttributes) to set.";
+					type = lib.types.attrsOf lib.types.str;
+					default = {};
 				};
 				dn = lib.mkOption {
 					type = lib.types.str;

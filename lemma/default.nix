@@ -6,6 +6,7 @@
 		./net.nix
 		./dn42.nix
 		./kino.nix
+		./box.nix
 		./xmpp.nix
 		./torrent.nix
 		./phi.nix

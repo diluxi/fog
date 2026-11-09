@@ -186,6 +186,11 @@ in {
 		enable = true;
 		package = pkgs.transmission_4;
 		settings = {
+			# finished torrents go to the storage box (lemma/box.nix), where
+			# they're seeded from; partial ones stay in /var/lib, on lemma0's
+			# own disk. pick a subdirectory per kind when adding a torrent;
+			# video/ is the one kino can link to
+			download-dir = "/srv/seed";
 			rpc-bind-address = "127.0.0.1";
 			rpc-port = rpc;
 			# authelia stands in front; transmission only sees the proxy
@@ -201,6 +206,7 @@ in {
 	};
 
 	systemd.services.transmission = {
+		unitConfig.RequiresMountsFor = [ "/srv/seed" "/srv/seed/video" ];
 		bindsTo = [ "mullvad.service" ];
 		after = [ "mullvad.service" ];
 		serviceConfig = {

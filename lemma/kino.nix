@@ -70,6 +70,10 @@ in {
 	lldap.serviceAccounts.jellyfin.groups = [ "lldap_strict_readonly" ];
 
 	systemd.services.jellyfin = {
+		# its libraries are in /srv/kino (lemma/box.nix), linking into
+		# /srv/seed/video. it reads both and writes neither
+		unitConfig.RequiresMountsFor = [ "/srv/kino" "/srv/seed/video" ];
+		serviceConfig.ReadOnlyPaths = [ "/srv/kino" "/srv/seed" ];
 		wants = [ "lldap-accounts.service" ];
 		after = [ "lldap-accounts.service" ];
 		serviceConfig.LoadCredential = [ "ldap:${account.passwordFile}" ];

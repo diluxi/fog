@@ -131,6 +131,11 @@ switched to, so a rewrite stops deploys until its state is fixed by hand.
   amartia.online are its aliases, so domain reports land there and not in
   lux's personal mailbox. Authelia sends password resets and one-time codes
   as fog, through Stalwart's submission on loopback.
+- Storage: a Hetzner storage box (`fog.tofu`, bx21 in fsn1), mounted over
+  SMB 3.1.1 by its `srv` subaccount (`lemma/box.nix`): `/srv/seed` is what
+  transmission seeds, sorted by kind; `/srv/seed/video` is what kino may
+  link to; `/srv/kino` holds Jellyfin's libraries, mostly symlinks into
+  seed/video (`mfsymlinks`). Partial torrents stay in /var/lib.
 
 ### Next, as agreed
 

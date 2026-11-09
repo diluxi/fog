@@ -108,16 +108,23 @@ switched to, so a rewrite stops deploys until its state is fixed by hand.
   preview by publishing the same tree, which lands on the same store path.
   You sign with `FOG_GPG=gpg-phi FOG_KEY='CD846977E6AC3DB5!'` on theorem.
   `./fog sites` lists, `./fog sites rollback <host>` rolls back.
+  `ecdo.certified` hosts get a vhost of their own, so their certificate
+  always exists at a fixed path for other services to reuse.
+- ejabberd (`lemma/xmpp.nix`) serves amartia.online: lldap's people, state in
+  sqlite, conference/pubsub/upload components, certificates from caddy.
+  Not yet deployed as of 2026-11-09.
+- transmission (`lemma/torrent.nix`) on torrent.amartia.online for the lldap
+  group `torrent`, inside a network namespace whose only way out is
+  mullvad's wireguard. Waits for the `mullvad` secret (a wg-quick file).
 
 ### Next, as agreed
 
 1. DNS at Hetzner (`fog.tofu`): both zones and rDNS, then the nameservers
    at Namecheap.
 2. Grafana (Prometheus, node-exporter) with OIDC through Authelia.
-3. XMPP, on the same directory.
-4. kino (Jellyfin) to amartia.online, with SSO through its OIDC or LDAP
+3. kino (Jellyfin) to amartia.online, with SSO through its OIDC or LDAP
    plugin; forward_auth would lock out the TV and phone apps.
-5. Invite codes for new users, against LLDAP's GraphQL API.
+4. Invite codes for new users, against LLDAP's GraphQL API.
 
 ### Later
 

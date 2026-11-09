@@ -133,8 +133,18 @@
 in {
 	# lux's account number, the only credential mullvad has. its devices are
 	# listed (and removed) at mullvad.net/account
-	crypt.secrets.mullvad.text = todo "mullvad" ''
-		the 16 digits of the mullvad account number'';
+	crypt.secrets.mullvad.text = ''
+		-----BEGIN PGP MESSAGE-----
+
+		wWwGFQQHYeuJ8PnxS6NfpKfm2+WoI81L/BIBB0ACUhmBoCkFnpK8cfy2TTf3mkxm
+		hA6FneiZfZfd00DwQTDX9PWQRZ6xJqNwlUtkVgVumEl4uXsUz6xh2LJXr+VH58wg
+		HKKBiFz9L+7LrWWduX7BbAYVBIxeW63uQw6sWG5vC987KBsinEoSEgEHQIJ2Xvl7
+		uuCyndVsyqWMPXMX/Ta5iYdojY2DhTp6AfhFMCA4ckvhOc+Stxdbg2vBYa8wqyhF
+		J1eLUU0iZzC0Cl/DCDdJBgNaqOG8gG7evbuPBdJeAgkCBgaFUDU8uy0MNbPxYIv0
+		JP3lHi4DkJPMZF73L1iKF+h94TSsyLJ6kVUvcwhqizYFdek+PYyyaJV5DSt0TI+T
+		opFllYZeghM8Fi47CTKMy8PIZuSXuka4FHa/5Q==
+		-----END PGP MESSAGE-----
+	'';
 	crypt.secrets.mullvad.services = [ "mullvad" ];
 	# lemma0's own wireguard key, registered with mullvad at first start
 	crypt.generated.mullvad-key.script =

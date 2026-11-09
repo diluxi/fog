@@ -53,6 +53,11 @@
 
 	wan = ''device="enp1s0"'';
 	root = ''mountpoint="/"'';
+	# lemma0's own disks, not witness0 or memory
+	local = ''fstype!~"tmpfs|ramfs|vfat|cifs"'';
+	# witness0, the storage box, is mounted three times (lemma/box.nix); all
+	# three report the whole box, so any one will do
+	witness = metric: "max(${metric}{fstype=\"cifs\"})";
 	# stalwart names its counters after its events (message-ingest.ham is
 	# message_ingest_ham); they restart at zero with stalwart, which
 	# increase() accounts for
@@ -76,6 +81,11 @@
 				(stat "failed units" "short" [ (query
 					''sum(node_systemd_unit_state{state="failed"})'' "") ])
 				(stat "mail queue" "short" [ (query "queue_count" "") ])
+				(gauge "witness0" [ (query
+					"1 - ${witness "node_filesystem_avail_bytes"} / ${witness "node_filesystem_size_bytes"}" "") ])
+				# 3 when /srv/seed, /srv/seed/video and /srv/kino are all there
+				(stat "witness0 mounts" "short" [ (query
+					''count(node_filesystem_size_bytes{fstype="cifs"}) or vector(0)'' "") ])
 			])
 			(row 4 8 [
 				(graph "traffic" "bps" [
@@ -89,9 +99,12 @@
 			])
 			(row 12 8 [
 				(graph "disk used" "decbytes" [ (query ''
-					node_filesystem_size_bytes{fstype!~"tmpfs|ramfs|vfat"}
-					- node_filesystem_avail_bytes{fstype!~"tmpfs|ramfs|vfat"}
+					node_filesystem_size_bytes{${local}} - node_filesystem_avail_bytes{${local}}
 				'' "{{mountpoint}}") ])
+				(graph "witness0 used" "decbytes" [
+					(query "${witness "node_filesystem_size_bytes"} - ${witness "node_filesystem_avail_bytes"}" "used")
+					(query (witness "node_filesystem_size_bytes") "size")
+				])
 				(graph "cpu" "percentunit" [ (query
 					''1 - avg(rate(node_cpu_seconds_total{mode="idle"}[$__rate_interval]))'' "busy") ])
 				(graph "memory" "decbytes" [

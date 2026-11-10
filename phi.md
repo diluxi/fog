@@ -189,6 +189,9 @@ switched to, so a rewrite stops deploys until its state is fixed by hand.
 - Some nixpkgs changes are switch inhibitors and need a reboot (the
   dbus-broker change was one). `fog ratify` first: a reboot drops anything
   only tested.
+- The firewall is nftables, and it filters forwarding: only fog to fog
+  passes. Anything else lemma0 should route (dn42, more WireGuard
+  interfaces) needs its own `firewall.extraForwardRules`.
 - On theorem, gpg-agent shows one pinentry at a time. A signing prompt for lux
   blocks the user's pass lookups, which is why lux has its own agent unlocked
   with `lux-unlock`.

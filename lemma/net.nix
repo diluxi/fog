@@ -21,6 +21,13 @@
 		wireguard.useNetworkd = true;
 		firewall.allowedUDPPorts = [ 51820 ];
 		firewall.trustedInterfaces = [ "fog" ];
+		# the firewall as nftables, and forwarding filtered too: forwarding is
+		# on for fog, and nothing else may pass through, dn42 least of all
+		nftables.enable = true;
+		firewall.filterForward = true;
+		firewall.extraForwardRules = ''
+			iifname "fog" oifname "fog" accept
+		'';
 	};
 
 	boot.kernel.sysctl = {

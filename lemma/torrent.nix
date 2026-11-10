@@ -242,6 +242,9 @@ in {
 		socketConfig.FreeBind = true;
 	};
 	systemd.services.transmission-rpc = {
+		# stopped with the socket: a socket won't start while its service
+		# runs, so a changed socket (new addresses) would fail on switch
+		partOf = [ "transmission-rpc.socket" ];
 		requires = [ "transmission.service" ];
 		bindsTo = [ "mullvad.service" ];
 		after = [ "transmission.service" "mullvad.service" ];

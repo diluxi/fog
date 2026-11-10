@@ -54,6 +54,45 @@
 		  <PasswordResetUrl>https://auth.amartia.online/reset-password/step1</PasswordResetUrl>
 		</PluginConfiguration>
 	'';
+	# jellyfin's libraries, which it keeps as files and reads at start: a
+	# directory per library under root/default, its type as an empty
+	# <type>.collection (none: mixed films and shows), and a .mblink per
+	# folder holding the folder's path (their names don't matter). options.xml, its settings from the
+	# ui, keeps a copy of the paths too. libraries named here are made to
+	# match at every start; others, and every other setting, are left alone
+	libraries = {
+		TV = { type = null; paths = [ "/srv/kino" ]; };
+	};
+	libraryScript = name: l: let
+		dir = "${dataDir}/root/default/${name}";
+		xml = lib.replaceStrings [ "&" "<" ">" ] [ "&amp;" "&lt;" "&gt;" ];
+	in ''
+		dir=${lib.escapeShellArg dir}
+		mkdir -p "$dir"
+		find "$dir" -maxdepth 1 \( -name '*.collection' -o -name '*.mblink' \) -delete
+		${lib.optionalString (l.type != null) ''
+			: >"$dir"/${lib.escapeShellArg "${l.type}.collection"}
+		''}
+		${lib.concatStrings (lib.imap1 (i: p: ''
+			printf %s ${lib.escapeShellArg p} >"$dir"/${lib.escapeShellArg "${toString i}-${baseNameOf p}.mblink"}
+		'') l.paths)}
+		if [ -f "$dir/options.xml" ]; then
+			PATHS=${lib.escapeShellArg (lib.concatMapStrings (p: "${xml p}\n") l.paths)} awk '
+				function infos(  n, a, i) {
+					print "  <PathInfos>"
+					n = split(ENVIRON["PATHS"], a, "\n")
+					for (i = 1; i < n; i++)
+						printf "    <MediaPathInfo>\n      <Path>%s</Path>\n    </MediaPathInfo>\n", a[i]
+					print "  </PathInfos>"
+				}
+				/<PathInfos *\/>/ { infos(); next }
+				/<PathInfos>/ { infos(); skip = 1; next }
+				skip && /<\/PathInfos>/ { skip = 0; next }
+				!skip
+			' "$dir/options.xml" >"$dir/options.xml.new"
+			mv "$dir/options.xml.new" "$dir/options.xml"
+		fi
+	'';
 in {
 	services.jellyfin = {
 		enable = true;
@@ -78,7 +117,7 @@ in {
 		after = [ "lldap-accounts.service" ];
 		serviceConfig.LoadCredential = [ "ldap:${account.passwordFile}" ];
 		path = [ pkgs.gawk ];
-		preStart = ''
+		preStart = lib.concatStrings (lib.mapAttrsToList libraryScript libraries) + ''
 			plugins=${lib.escapeShellArg "${dataDir}/plugins"}
 			dir="$plugins/${ldapPlugin.name}_${ldapPlugin.version}"
 			if [ ! -d "$dir" ]; then

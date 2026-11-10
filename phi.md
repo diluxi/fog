@@ -142,6 +142,16 @@ switched to, so a rewrite stops deploys until its state is fixed by hand.
   `/srv/seed/video`, what kino may link to; `/srv/kino`, Jellyfin's
   libraries, mostly symlinks into seed/video (`mfsymlinks`). Partial
   torrents stay in /var/lib. Losing the key loses the box.
+- VPN (`lemma/vpn.nix`): wg-portal at vpn.amartia.online, logins only
+  through Authelia's OIDC with a second factor. Each `vpn.roles.<name>` is
+  a WireGuard interface `fog-<name>` that wg-portal owns with its peers,
+  on port 51820+n, in 10.10.n.0/24 and fd60:d315:194a:n::/64 (lemma0 is .1
+  and ::1). Who may add peers to it is an lldap group (wg-portal's LDAP
+  sync, which logs nobody in); what the peers reach is the firewall by
+  interface (`trusted`, `tcp`). `wg-portal-roles` declares the interfaces
+  through wg-portal's API, with keys from `crypt.generated.vpn-fog-<name>`.
+  Roles: `admin` (lldap_admin, everything) and `torrent` (the RPC on 9092,
+  for Tremotesf). `fog` and `dn42` stay networkd's.
 
 ### Next, as agreed
 

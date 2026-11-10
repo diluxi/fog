@@ -2,7 +2,7 @@
 	torrent = "torrent.amartia.online";
 	netns = "/run/netns/mullvad";
 	rpc = 9091; # inside the namespace
-	proxy = "127.0.0.1:9092"; # outside it, for caddy; authelia has 9091
+	proxy = 9092; # outside it, for caddy (authelia has 9091) and the vpn
 
 	# placeholder until the encrypted secret is pasted in its place
 	todo = name: how: throw ''
@@ -230,10 +230,16 @@ in {
 	};
 
 	# the web ui and rpc, carried out of the namespace: the socket is the
-	# host's, the proxy connects from inside
+	# host's, the proxy connects from inside. on loopback for caddy, and on
+	# lemma0's vpn addresses for apps like tremotesf, which can't get past
+	# authelia: there the wireguard key is the login. those addresses come
+	# with wg-portal's interfaces, so binding mustn't wait for them
 	systemd.sockets.transmission-rpc = {
 		wantedBy = [ "sockets.target" ];
-		listenStreams = [ proxy ];
+		listenStreams = [ "127.0.0.1:${toString proxy}" ]
+			++ config.vpn.roles.torrent.listen proxy
+			++ config.vpn.roles.admin.listen proxy;
+		socketConfig.FreeBind = true;
 	};
 	systemd.services.transmission-rpc = {
 		requires = [ "transmission.service" ];
@@ -248,6 +254,13 @@ in {
 
 	# who may: members of `torrent`, added in lldap's ui
 	lldap.groups = [ "torrent" ];
+	# and from their own devices, over the vpn, the rpc and nothing else
+	vpn.roles.torrent = {
+		n = 2;
+		group = "torrent";
+		label = "torrent";
+		tcp = [ proxy ];
+	};
 	invite.groups.torrent = {
 		label = "Torrents";
 		info = "https://${torrent}, after a second factor you set up on first login";
@@ -263,6 +276,6 @@ in {
 			uri /api/authz/forward-auth
 			copy_headers Remote-User Remote-Groups Remote-Email Remote-Name
 		}
-		reverse_proxy ${proxy}
+		reverse_proxy 127.0.0.1:${toString proxy}
 	'';
 }

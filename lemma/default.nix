@@ -4,6 +4,7 @@
 		./http.nix
 		./ecdo.nix
 		./net.nix
+		./vpn.nix
 		./dn42.nix
 		./kino.nix
 		./box.nix

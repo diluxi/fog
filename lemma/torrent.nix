@@ -186,11 +186,18 @@ in {
 		enable = true;
 		package = pkgs.transmission_4;
 		settings = {
-			# finished torrents go to the storage box (lemma/box.nix), where
-			# they're seeded from; partial ones stay in /var/lib, on lemma0's
-			# own disk. pick a subdirectory per kind when adding a torrent;
-			# video/ is the one kino can link to
+			# everything goes to witness0 (lemma/box.nix), partial torrents too,
+			# so transmission can't fill lemma0's own disk, which the databases
+			# of every other service live on. pick a subdirectory per kind when
+			# adding a torrent; video/ is the one kino can link to
 			download-dir = "/srv/seed";
+			incomplete-dir-enabled = false;
+			# and nothing reserved ahead: transmission's default preallocation
+			# ("sparse") still calls fallocate, which takes each file's whole
+			# size at once. files grow as pieces come in, holes cost nothing
+			preallocation = 0;
+			# pieces reach the box in larger writes, through gocryptfs and smb
+			cache-size-mb = 64;
 			rpc-bind-address = "127.0.0.1";
 			rpc-port = rpc;
 			# authelia stands in front; transmission only sees the proxy

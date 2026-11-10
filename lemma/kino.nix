@@ -61,7 +61,7 @@
 	# ui, keeps a copy of the paths too. libraries named here are made to
 	# match at every start; others, and every other setting, are left alone
 	libraries = {
-		TV = { type = null; paths = [ "/srv/kino" ]; };
+		TV = { type = null; paths = [ "/srv/kino" "/srv/seed/video" ]; };
 	};
 	libraryScript = name: l: let
 		dir = "${dataDir}/root/default/${name}";

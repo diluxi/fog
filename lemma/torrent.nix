@@ -1,189 +1,188 @@
 { config, lib, pkgs, ... }: let
 	torrent = "torrent.amartia.online";
-	netns = "/run/netns/mullvad";
+	netns = "/run/netns/airvpn";
 	rpc = 9091; # inside the namespace
 	proxy = 9092; # outside it, for caddy (authelia has 9091) and the vpn
 
 	# placeholder until the encrypted secret is pasted in its place
 	todo = name: how: throw ''
-		crypt.secrets.${name} is missing. generate it with
-			${how}
+		crypt.secrets.${name} is missing. ${how}
 		encrypt it to lemma0 and lux, and paste the armored message here.
 	'';
 
-	state = "/var/lib/mullvad";
-	api = "https://api.mullvad.net";
+	state = "/var/lib/airvpn";
+	run = "/run/airvpn";
+	status = "https://airvpn.org/api/status/";
 
-	# the shell shared by bringing the tunnel up and switching relays.
-	# mullvad knows lemma0 as a device: its key is made here, and mullvad
-	# hands out the tunnel's addresses for it. relays come from mullvad's
-	# public list, so neither the account's device nor the relay in use
-	# appears in this repository
+	# the shell shared by bringing the tunnel up and switching servers.
+	# airvpn knows lemma0 as a device, whose keys and tunnel addresses are
+	# the config from its client area (crypt.secrets.airvpn). every server
+	# shares one key and the port is the account's, so a server is only an
+	# endpoint, chosen from airvpn's public status at run time: neither the
+	# device nor the server in use appears in this repository
 	common = ''
 		set -euo pipefail
-		say() { echo "mullvad: $*" >&2; }
+		say() { echo "airvpn: $*" >&2; }
 		die() { say "$*"; exit 1; }
 
-		# a working relay among those ${state}/prefer names, or any. each line
-		# of it is a hostname or its start: se-got, ch-, de-fra-wg-001
-		connect() {
-			local relays relay pk host old p
-			relays=$(jq -c --rawfile prefer ${state}/prefer '
-				($prefer | [splits("\\s+")] | map(select(. != ""))) as $p
-				| .wireguard.relays[] | select(.active)
-				| select(($p | length) == 0
-					or (.hostname as $h | $p | any(. as $q | $h | startswith($q))))
-				| {hostname, public_key, ipv4_addr_in}
-			' ${state}/relays.json 2>/dev/null ||
-				jq -c '.wireguard.relays[] | select(.active)
-					| {hostname, public_key, ipv4_addr_in}' ${state}/relays.json)
-			[ -n "$relays" ] || die "no relay matches ${state}/prefer"
-			old=$(ip netns exec mullvad wg show mullvad peers)
+		# a value from the device's wg-quick config
+		conf() {
+			sed -n "s/^[[:space:]]*$1[[:space:]]*=[[:space:]]*//p" \
+				"$CREDENTIALS_DIRECTORY/conf" | head -n 1 | tr -d '[:space:]'
+		}
 
-			# up to five of them, each at most once
-			while read -r relay; do
-				pk=$(jq -r .public_key <<<"$relay")
-				host=$(jq -r .hostname <<<"$relay")
-				ip netns exec mullvad wg set mullvad peer "$pk" \
-					endpoint "$(jq -r .ipv4_addr_in <<<"$relay"):51820" \
+		# a server that answers, among the healthy ones ${state}/prefer names,
+		# or any healthy one; the least loaded first, skipping the one in use
+		# when switching. each line of prefer is a server's name, a country
+		# code or a city, in any case: Achernar, nl, Zurich
+		connect() {
+			local servers server name pk psk ka before
+			servers=$(jq -c --rawfile prefer ${state}/prefer \
+					--arg skip "$(cat ${run}/server 2>/dev/null || true)" '
+				($prefer | ascii_downcase | [splits("\\s+")] | map(select(. != ""))) as $p
+				| [.servers[] | select(.health == "ok" and .public_name != $skip)
+					| select(($p | length) == 0 or ([.public_name, .country_code, .location]
+						| map(ascii_downcase) | any(. as $v | $p | index($v) != null)))]
+				| sort_by(.currentload) | .[:5][]
+				| {public_name, ip_v4_in1, currentload}
+			' ${state}/status.json)
+			[ -n "$servers" ] || die "no healthy server matches ${state}/prefer"
+			pk=$(conf PublicKey)
+			psk=$(conf PresharedKey)
+			ka=$(conf PersistentKeepalive)
+			umask 077
+			printf '%s\n' "$psk" >${run}/psk
+
+			while read -r server; do
+				name=$(jq -r .public_name <<<"$server")
+				# the peer anew, so the old server's session goes with it and
+				# the handshake below is the new server's
+				ip netns exec airvpn wg set airvpn peer "$pk" remove
+				ip netns exec airvpn wg set airvpn peer "$pk" \
+					preshared-key ${run}/psk \
+					endpoint "$(jq -r .ip_v4_in1 <<<"$server"):1637" \
+					persistent-keepalive "''${ka:-15}" \
 					allowed-ips 0.0.0.0/0,::/0
-				for p in $old; do
-					[ "$p" = "$pk" ] || ip netns exec mullvad wg set mullvad peer "$p" remove
+				ip netns exec airvpn ping -q -c 1 -W 1 "$(conf DNS | cut -d, -f1)" >/dev/null 2>&1 || true
+				for _ in 1 2 3 4 5 6 7 8; do
+					if [ "$(ip netns exec airvpn wg show airvpn latest-handshakes | cut -f2)" != 0 ]; then
+						echo "$name" >${run}/server
+						say "through $name ($(jq -r .currentload <<<"$server")% load)"
+						return 0
+					fi
+					sleep 1
 				done
-				old=$pk
-				# mullvad's resolver answers pings once the handshake is through
-				if ip netns exec mullvad ping -q -c 3 -W 3 10.64.0.1 >/dev/null; then
-					echo "$host" >/run/mullvad/relay
-					say "through $host"
-					return 0
-				fi
-				say "$host doesn't answer"
-			done < <(shuf -n 5 <<<"$relays")
-			die "no relay answered"
+				say "$name doesn't answer"
+			done <<<"$servers"
+			die "no server answered"
 		}
 	'';
 
-	# register lemma0's key once, and keep the relay list fresh. both are
-	# kept, so an unreachable api only means the last ones are used
-	register = ''
-		key=$CREDENTIALS_DIRECTORY/key
-		hdr=$(mktemp); trap 'rm -f "$hdr"' EXIT
-		post() { curl -sSf --retry 3 -H 'content-type: application/json' --data @- "$@"; }
-		pub=$(wg pubkey <"$key")
-		if jq -Rn '{account_number: (input | gsub("\\s"; ""))}' \
-				<"$CREDENTIALS_DIRECTORY/account" |
-				post ${api}/auth/v1/token |
-				jq -er '"Authorization: Bearer \(.access_token)"' >"$hdr"; then
-			device=$(curl -sSf --retry 3 -H @"$hdr" ${api}/accounts/v1/devices |
-				jq -c --arg p "$pub" 'map(select(.pubkey == $p))[0] // empty')
-			if [ -z "$device" ]; then
-				device=$(jq -nc --arg p "$pub" '{pubkey: $p, hijack_dns: false}' |
-					post -H @"$hdr" ${api}/accounts/v1/devices)
-				say "registered as $(jq -r .name <<<"$device")"
-			fi
-			jq '{name, ipv4_address, ipv6_address}' <<<"$device" >${state}/device.json.new
-			mv ${state}/device.json.new ${state}/device.json
-			curl -sSf --retry 3 ${api}/public/relays/wireguard/v2 >${state}/relays.json.new
-			mv ${state}/relays.json.new ${state}/relays.json
+	# the server list, kept fresh, and the last one kept, so an unreachable
+	# api only means older loads
+	refresh = ''
+		if curl -sSf --retry 3 -m 30 ${status} >${state}/status.json.new &&
+				jq -e '.servers | length > 0' ${state}/status.json.new >/dev/null; then
+			mv ${state}/status.json.new ${state}/status.json
 		else
-			say "mullvad's api is unreachable or refused; using the last registration"
+			rm -f ${state}/status.json.new
+			say "airvpn's status api is unreachable; using the last list"
 		fi
-		[ -s ${state}/device.json ] && [ -s ${state}/relays.json ] ||
-			die "never registered with mullvad"
+		[ -s ${state}/status.json ] || die "never got airvpn's server list"
 	'';
 
-	# a namespace with nothing but loopback and the tunnel: when mullvad is
+	# a namespace with nothing but loopback and the tunnel: when airvpn is
 	# down there is no route at all, so nothing leaks around it. the tunnel's
 	# udp socket stays outside, since the interface is made there and moved in
-	up = pkgs.writeShellScript "mullvad-up" ''
+	up = pkgs.writeShellScript "airvpn-up" ''
 		${common}
-		${register}
+		install -d -m 755 ${run}
+		rm -f ${run}/server
+		${refresh}
 		touch ${state}/prefer
 
-		ip netns delete mullvad 2>/dev/null || true
-		ip link delete mullvad 2>/dev/null || true
-		ip netns add mullvad
-		ip -n mullvad link set lo up
+		ip netns delete airvpn 2>/dev/null || true
+		ip link delete airvpn 2>/dev/null || true
+		ip netns add airvpn
+		ip -n airvpn link set lo up
 
-		ip link add mullvad type wireguard
-		wg set mullvad private-key "$key"
-		ip link set mullvad netns mullvad
-		for a in $(jq -r '.ipv4_address, .ipv6_address' ${state}/device.json); do
-			ip -n mullvad address add "$a" dev mullvad
+		ip link add airvpn type wireguard
+		(umask 077; conf PrivateKey >${run}/key)
+		wg set airvpn private-key ${run}/key
+		ip link set airvpn netns airvpn
+		for a in $(conf Address | tr , ' '); do
+			ip -n airvpn address add "$a" dev airvpn
 		done
-		ip -n mullvad link set mullvad up
-		ip -n mullvad -4 route add default dev mullvad
-		ip -n mullvad -6 route add default dev mullvad
+		ip -n airvpn link set airvpn mtu "$(conf MTU | grep . || echo 1320)" up
+		ip -n airvpn -4 route add default dev airvpn
+		ip -n airvpn -6 route add default dev airvpn
 
-		# mullvad's resolver, inside the tunnel
-		install -d -m 755 /run/mullvad
-		echo "nameserver 10.64.0.1" >/run/mullvad/resolv.conf
+		# airvpn's resolvers, inside the tunnel
+		conf DNS | tr , '\n' | sed 's/^/nameserver /' >${run}/resolv.conf
+		chmod 644 ${run}/resolv.conf
+
+		# the account's forwarded port, for transmission to listen on
+		jq -n --rawfile p "$CREDENTIALS_DIRECTORY/port" \
+			'{"peer-port": ($p | gsub("\\s"; "") | tonumber)}' >${run}/transmission.json
 
 		connect
 	'';
 
-	# another relay without tearing the namespace down: only the peer
-	# changes, so transmission keeps running and reconnects to its peers
-	switch = pkgs.writeShellScript "mullvad-switch" ''
+	# another server without tearing the namespace down: only the peer's
+	# endpoint changes, so transmission keeps running and reconnects
+	switch = pkgs.writeShellScript "airvpn-switch" ''
 		${common}
+		${refresh}
 		connect
 	'';
 
-	tools = with pkgs; [ iproute2 iputils wireguard-tools jq curl coreutils ];
+	tools = with pkgs; [ iproute2 iputils wireguard-tools jq curl coreutils gnused gnugrep ];
 in {
-	# lux's account number, the only credential mullvad has. its devices are
-	# listed (and removed) at mullvad.net/account
-	crypt.secrets.mullvad.text = ''
-		-----BEGIN PGP MESSAGE-----
+	# the device's wg-quick config from airvpn's client area (config
+	# generator, wireguard, any server): its keys and tunnel addresses
+	crypt.secrets.airvpn.text = todo "airvpn"
+		"take the wireguard config from airvpn's config generator, as it is.";
+	# the port forwarded to the account (client area, ports), as a number.
+	# it's airvpn's on every server, so it would link this repo to the account
+	crypt.secrets.airvpn-port.text = todo "airvpn-port"
+		"write the port airvpn forwards to the account, just the number.";
 
-		wWwGFQQHYeuJ8PnxS6NfpKfm2+WoI81L/BIBB0ACUhmBoCkFnpK8cfy2TTf3mkxm
-		hA6FneiZfZfd00DwQTDX9PWQRZ6xJqNwlUtkVgVumEl4uXsUz6xh2LJXr+VH58wg
-		HKKBiFz9L+7LrWWduX7BbAYVBIxeW63uQw6sWG5vC987KBsinEoSEgEHQIJ2Xvl7
-		uuCyndVsyqWMPXMX/Ta5iYdojY2DhTp6AfhFMCA4ckvhOc+Stxdbg2vBYa8wqyhF
-		J1eLUU0iZzC0Cl/DCDdJBgNaqOG8gG7evbuPBdJeAgkCBgaFUDU8uy0MNbPxYIv0
-		JP3lHi4DkJPMZF73L1iKF+h94TSsyLJ6kVUvcwhqizYFdek+PYyyaJV5DSt0TI+T
-		opFllYZeghM8Fi47CTKMy8PIZuSXuka4FHa/5Q==
-		-----END PGP MESSAGE-----
-	'';
-	crypt.secrets.mullvad.services = [ "mullvad" ];
-	# lemma0's own wireguard key, registered with mullvad at first start
-	crypt.generated.mullvad-key.script =
-		"${pkgs.wireguard-tools}/bin/wg genkey | tr -d '\\n' >$out";
-
-	systemd.services.mullvad = {
-		description = "network namespace that only reaches the internet through mullvad";
+	systemd.services.airvpn = {
+		description = "network namespace that only reaches the internet through airvpn";
 		wants = [ "network-online.target" ];
 		after = [ "network-online.target" ];
 		path = tools;
 		serviceConfig = {
 			Type = "oneshot";
 			RemainAfterExit = true;
-			StateDirectory = "mullvad";
+			StateDirectory = "airvpn";
 			LoadCredential = [
-				"account:${config.crypt.secrets.mullvad.path}"
-				"key:${config.crypt.generated.mullvad-key.path}"
+				"conf:${config.crypt.secrets.airvpn.path}"
+				"port:${config.crypt.secrets.airvpn-port.path}"
 			];
 			ExecStart = up;
-			ExecStop = "${pkgs.iproute2}/bin/ip netns delete mullvad";
+			ExecStop = "${pkgs.iproute2}/bin/ip netns delete airvpn";
 			Restart = "on-failure";
 			RestartSec = "1min";
 		};
 	};
-	# `systemctl start mullvad-switch` after editing /var/lib/mullvad/prefer,
-	# or to move on from a relay
-	systemd.services.mullvad-switch = {
-		description = "switch mullvad relays";
-		requisite = [ "mullvad.service" ];
-		after = [ "mullvad.service" ];
+	# `systemctl start airvpn-switch` after editing /var/lib/airvpn/prefer,
+	# or to move on from a server
+	systemd.services.airvpn-switch = {
+		description = "switch airvpn servers";
+		requisite = [ "airvpn.service" ];
+		after = [ "airvpn.service" ];
 		path = tools;
 		serviceConfig = {
 			Type = "oneshot";
+			LoadCredential = [ "conf:${config.crypt.secrets.airvpn.path}" ];
 			ExecStart = switch;
 		};
 	};
 
 	services.transmission = {
 		enable = true;
+		credentialsFile = "${run}/transmission.json";
 		package = pkgs.transmission_4;
 		settings = {
 			# everything goes to witness0 (lemma/box.nix), partial torrents too,
@@ -206,26 +205,28 @@ in {
 			rpc-whitelist = "127.0.0.1";
 			rpc-host-whitelist-enabled = true;
 			rpc-host-whitelist = torrent;
-			# mullvad forwards no ports, so peers can't reach us; we reach them
+			# the peer port is airvpn's forwarded one (credentialsFile), so
+			# peers reach us through it; upnp is for home routers
 			port-forwarding-enabled = false;
+			peer-port-random-on-start = false;
 			encryption = 1; # prefer encrypted peers
 		};
 	};
 
 	systemd.services.transmission = {
 		unitConfig.RequiresMountsFor = [ "/srv/seed" "/srv/seed/video" ];
-		bindsTo = [ "mullvad.service" ];
-		after = [ "mullvad.service" ];
+		bindsTo = [ "airvpn.service" ];
+		after = [ "airvpn.service" ];
 		serviceConfig = {
 			NetworkNamespacePath = netns;
 			# joining a namespace the host's user namespace owns needs
 			# privileges a private user namespace wouldn't have
 			PrivateUsers = false;
-			# names resolve through mullvad's resolver, not the host's: glibc
+			# names resolve through airvpn's resolvers, not the host's: glibc
 			# loses nscd (and resolved behind it) and reads the stub's file,
-			# which is mullvad's here
+			# which is airvpn's here
 			InaccessiblePaths = [ "-/run/nscd" "-/run/systemd/resolve/io.systemd.Resolve" ];
-			BindReadOnlyPaths = [ "/run/mullvad/resolv.conf:/run/systemd/resolve/stub-resolv.conf" ];
+			BindReadOnlyPaths = [ "${run}/resolv.conf:/run/systemd/resolve/stub-resolv.conf" ];
 		};
 	};
 
@@ -246,8 +247,8 @@ in {
 		# runs, so a changed socket (new addresses) would fail on switch
 		partOf = [ "transmission-rpc.socket" ];
 		requires = [ "transmission.service" ];
-		bindsTo = [ "mullvad.service" ];
-		after = [ "transmission.service" "mullvad.service" ];
+		bindsTo = [ "airvpn.service" ];
+		after = [ "transmission.service" "airvpn.service" ];
 		serviceConfig = {
 			ExecStart = "${config.systemd.package}/lib/systemd/systemd-socket-proxyd 127.0.0.1:${toString rpc}";
 			NetworkNamespacePath = netns;

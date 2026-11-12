@@ -116,9 +116,13 @@ switched to, so a rewrite stops deploys until its state is fixed by hand.
   Conversations requires channel binding.
 - transmission (`lemma/torrent.nix`) on torrent.amartia.online for the lldap
   group `torrent`, inside a network namespace whose only way out is
-  mullvad's wireguard. The secret is only the account number; lemma0
-  registers its own key and picks relays at runtime, narrowed by
-  `/var/lib/mullvad/prefer`. `systemctl start mullvad-switch` changes relay.
+  AirVPN's WireGuard (Mullvad until 2026-11, which forwards no ports). The
+  secrets are the device's wg-quick config from AirVPN's generator and the
+  account's forwarded port, which becomes Transmission's peer port. Every
+  AirVPN server shares one key, so lemma0 picks a server's endpoint at
+  runtime from the public status API, least loaded first, narrowed by
+  `/var/lib/airvpn/prefer` (names, country codes or cities).
+  `systemctl start airvpn-switch` moves to another server.
 - Invitations (`lemma/invite.nix`, Go in `lemma/invite/`): lldap_admin
   makes single-use links at invite.amartia.online/new for groups that
   modules declare in `invite.groups`; the invitee picks a username, a

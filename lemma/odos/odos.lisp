@@ -25,6 +25,7 @@
 (defvar *jellyfin* "http://127.0.0.1:8096")
 (defvar *key-file* nil "Jellyfin's api key, or nothing to tell it.")
 (defvar *dry-run* nil "Say what would be linked, and change nothing.")
+(defvar *rules-file* nil "Where a torrent's folders and files are said to be, by a person.")
 
 (defparameter +videos+
   '("mkv" "mp4" "m4v" "avi" "mov" "wmv" "webm" "ts" "m2ts" "mpg" "mpeg" "flv" "ogv"))
@@ -164,8 +165,12 @@ one as the second value."
 
 (defun readable (name)
   "NAME as guessit reads it best: a version after an episode (S01E01v2) makes
-it read the whole name as a film's title, so the version goes."
-  (ppcre:regex-replace-all "(?i)\\b(S\\d{1,3}(?:E\\d{1,4})*)v\\d{1,2}\\b" name "\\1"))
+it read the whole name as a film's title, and a folder's place in a
+collection (14. Owarimonogatari) as an episode's number, so both go."
+  (ppcre:regex-replace-all
+   "(^|/)\\d{1,3}\\.\\s+(?=[^/]*/)"
+   (ppcre:regex-replace-all "(?i)\\b(S\\d{1,3}(?:E\\d{1,4})*)v\\d{1,2}\\b" name "\\1")
+   "\\1"))
 
 (defun guess (paths)
   "What guessit makes of each path, relative to *video* so a torrent's
@@ -257,36 +262,42 @@ it didn't take it."
                                  (destructuring-bind (id name year) v
                                    (format nil "~a~c~a~c~a~c~@[~d~]" key #\Tab id #\Tab name #\Tab year))))))
 
-(defun look-up (kind title year)
-  "What jellyfin's metadata finds for TITLE: (id name year) of the first tmdb
-result, of YEAR if one is; :none for nothing; :unreachable if jellyfin can't
-be asked."
+(defun look-up (kind title year &optional tmdb)
+  "What jellyfin's metadata finds for TITLE, or for the tmdb id TMDB: (id name
+year) of the first tmdb result, of YEAR if one is; :none for nothing;
+:unreachable if jellyfin can't be asked."
   (let ((out (and *key*
                   (jellyfin (format nil "/Items/RemoteSearch/~a" (if (eq kind :film) "Movie" "Series"))
-                            (object "SearchInfo" (if year
-                                                     (object "Name" title "Year" year)
-                                                     (object "Name" title)))))))
+                            (object "SearchInfo"
+                                    (cond (tmdb (object "ProviderIds" (object "Tmdb" (princ-to-string tmdb))))
+                                          (year (object "Name" title "Year" year))
+                                          (t (object "Name" title))))))))
     (if (null out)
         :unreachable
         (let* ((results (remove-if-not (lambda (r)
                                          (let ((ids (gethash "ProviderIds" r)))
                                            (and (hash-table-p ids) (stringp (gethash "Tmdb" ids)))))
                                        (coerce (jzon:parse out) 'list)))
-               (best (or (and year (find year results :key (lambda (r) (gethash "ProductionYear" r))))
-                         (first results))))
+               (best (cond (tmdb (find (princ-to-string tmdb) results
+                                       :key (lambda (r) (gethash "Tmdb" (gethash "ProviderIds" r)))
+                                       :test #'equal))
+                           ((and year (find year results :key (lambda (r) (gethash "ProductionYear" r)))))
+                           (t (first results)))))
           (if best
               (list (gethash "Tmdb" (gethash "ProviderIds" best))
                     (gethash "Name" best)
                     (let ((y (gethash "ProductionYear" best))) (and (integerp y) y)))
               :none)))))
 
-(defun identify (kind title year)
-  "(id name year) for TITLE, :none, or :unreachable."
-  (let ((key (format nil "~(~a~)|~a|~@[~d~]" kind (fold title) year)))
+(defun identify (kind title year &optional tmdb)
+  "(id name year) for TITLE, or for the tmdb id TMDB; :none, or :unreachable."
+  (let ((key (if tmdb
+                 (format nil "~(~a~)|tmdb:~a" kind tmdb)
+                 (format nil "~(~a~)|~a|~@[~d~]" kind (fold title) year))))
     (multiple-value-bind (known there) (gethash key *ids*)
       (if there
           known
-          (let ((found (if *key* (look-up kind title year) :none)))
+          (let ((found (if *key* (look-up kind title year tmdb) :none)))
             ;; without a key, guessit's title, but nothing to remember
             (unless (or (eq found :unreachable) (null *key*))
               (setf (gethash key *ids*) found))
@@ -328,23 +339,93 @@ else by guessit's title and year. Its title is the second value. :defer when
 jellyfin can't be asked."
   (let ((id (identify kind title year)))
     (cond ((eq id :unreachable) :defer)
-          ((consp id)
-           (destructuring-bind (tmdb name tmdb-year) id
-             (let ((name (clean name)))
-               (values (or (gethash (format nil "id:~a" tmdb) index)
-                           (let ((new (format nil "~a~@[ (~d)~] [tmdbid-~a]" name tmdb-year tmdb)))
-                             (setf (gethash (format nil "id:~a" tmdb) index) new
-                                   (gethash (fold new) index) new)))
-                       name))))
+          ((consp id) (known-folder index id))
           (t (values (or (gethash (fold title) index)
                          (setf (gethash (fold title) index)
                                (if year (format nil "~a (~d)" title year) title)))
                      title)))))
 
-(defun place (guess shows films)
-  "Where the video GUESS is of goes, without its extension, and its key for
+(defun known-folder (index id)
+  "The folder for ID, (tmdb name year), and its title."
+  (destructuring-bind (tmdb name tmdb-year) id
+    (let ((name (clean name)))
+      (values (or (gethash (format nil "id:~a" tmdb) index)
+                  (let ((new (format nil "~a~@[ (~d)~] [tmdbid-~a]" name tmdb-year tmdb)))
+                    (setf (gethash (format nil "id:~a" tmdb) index) new
+                          (gethash (fold new) index) new)))
+              name))))
+
+;;; rules: where a person says a torrent's folder or file is what, for what
+;;; no name says well enough. one is (path :film id) or (path :show id
+;;; :episodes ((from to season offset) ...)): episode n of the files, from
+;;; FROM to TO (or on), is episode n+OFFSET of SEASON. paths are relative to
+;;; the seed tree, and the longest that holds a file is its rule
+
+(defvar *rules* '())
+
+(defun read-rules ()
+  (setf *rules*
+        (when (and *rules-file* (eq (kind *rules-file*) :file))
+          (with-open-file (in *rules-file* :external-format :utf-8)
+            (let ((*read-eval* nil) (*package* (find-package :odos)))
+              (loop for form = (read in nil in) until (eq form in) collect form))))))
+
+(defun rule-for (path)
+  (let ((rel (relative *video* path)) best)
+    (dolist (r *rules* best)
+      (let ((prefix (first r)))
+        (when (and (or (string= rel prefix)
+                       (and (> (length rel) (length prefix))
+                            (string= prefix rel :end2 (length prefix))
+                            (char= (char rel (length prefix)) #\/)))
+                   (or (null best) (> (length prefix) (length (first best)))))
+          (setf best r))))))
+
+(defun numbers (path guess)
+  "The episode numbers PATH holds: guessit's, or the one before \" - \" in its
+name (Owarimonogatari 2nd Season 01 - Mayoi Hell)."
+  (or (remove-if-not #'integerp (fields guess "episode"))
+      (let ((m (nth-value 1 (ppcre:scan-to-strings "(\\d{1,3}) - " (basename path)))))
+        (and m (list (parse-integer (aref m 0)))))))
+
+(defun place-by-rule (rule path guess shows films)
+  (destructuring-bind (prefix &key film show episodes) rule
+    (declare (ignore prefix))
+    (flet ((by-id (index kind id)
+             (let ((found (identify kind nil nil id)))
+               (cond ((eq found :unreachable) (return-from place-by-rule (values nil :defer)))
+                     ((consp found) (known-folder index found))
+                     (t (return-from place-by-rule
+                          (values nil (format nil "tmdb doesn't know the rule's ~(~a~) ~a" kind id))))))))
+      (cond (film
+             (let ((folder (by-id films :film film)))
+               (values (format nil "~a/~a/~a" *films* folder folder) (list :film (fold folder)))))
+            (show
+             (let* ((ns (numbers path guess))
+                    (segment (and ns (find-if (lambda (seg)
+                                                (destructuring-bind (from to &rest _) seg
+                                                  (declare (ignore _))
+                                                  (and (>= (first ns) from) (or (null to) (<= (first ns) to)))))
+                                              episodes))))
+               (cond ((null ns) (values nil "no episode number for the rule"))
+                     ((null segment) (values nil (format nil "the rule has no season for episode ~d" (first ns))))
+                     (t (destructuring-bind (from to season offset) segment
+                          (declare (ignore from to))
+                          (multiple-value-bind (folder name) (by-id shows :show show)
+                            (let ((eps (mapcar (lambda (n) (+ n offset)) ns)))
+                              (values (format nil "~a/~a/Season ~2,'0d/~a S~2,'0dE~{~2,'0d~^-E~}"
+                                              *shows* folder season name season eps)
+                                      (list :episode (fold folder) season eps)))))))))
+            (t (values nil "a rule that says neither film nor show"))))))
+
+(defun place (path guess shows films)
+  "Where PATH, which GUESS is of, goes, without its extension, and its key for
 subtitles; or nil and why not, or nil and :defer when jellyfin can't say who
-it is yet. SHOWS and FILMS index their roots' folders."
+it is yet. A rule for it goes first. SHOWS and FILMS index their roots'
+folders."
+  (let ((rule (rule-for path)))
+    (when rule
+      (return-from place (place-by-rule rule path guess shows films))))
   (let ((title (let ((v (field guess "title"))) (and (stringp v) (clean v))))
         (year (let ((v (field guess "year"))) (and (integerp v) v)))
         (season (let ((v (field guess "season"))) (and (integerp v) v)))
@@ -598,7 +679,7 @@ top, or nothing for a file there on its own."
           when (member (extension path) +videos+ :test #'string=)
             do (unless-failing (run path)
                 (unless (find "Sample" (fields g "other") :test #'equal)
-                 (multiple-value-bind (stem key) (place g shows films)
+                 (multiple-value-bind (stem key) (place path g shows films)
                    (cond
                      ((eq key :defer) (incf (run-deferred run)))
                      ((null stem) (note-unsure run path key))
@@ -619,7 +700,7 @@ top, or nothing for a file there on its own."
     (loop for path in paths and g in guesses
           when (member (extension path) +subtitles+ :test #'string=)
             do (unless-failing (run path)
-                (multiple-value-bind (stem key) (place g shows films)
+                (multiple-value-bind (stem key) (place path g shows films)
                  (let ((stem (and stem (gethash (cons key (torrent path)) stems)))
                        (language (field g "subtitle_language")))
                    (cond ((stringp stem)
@@ -724,6 +805,7 @@ couldn't say who something is."
                    (string-trim '(#\Space #\Newline #\Tab) (uiop:read-file-string *key-file*))))
   (unless *key* (say "no api key: shows and films are named by guessit alone"))
   (read-ids)
+  (read-rules)
   (unless *dry-run*
     (dolist (root (list *shows* *films*))
       (ensure-directories root *links*)))
@@ -754,7 +836,7 @@ couldn't say who something is."
 
 (defun usage ()
   (format *error-output* "usage: odos [--dry-run] [--video DIR] [--links DIR] [--shows DIR] [--films DIR]
-            [--state DIR] [--spool DIR] [--jellyfin URL] [--key-file FILE]~%")
+            [--state DIR] [--spool DIR] [--jellyfin URL] [--key-file FILE] [--rules FILE]~%")
   (uiop:quit 64))
 
 (defun main ()
@@ -774,6 +856,7 @@ couldn't say who something is."
                            ((string= flag "--spool") (setf *spool* value))
                            ((string= flag "--jellyfin") (setf *jellyfin* value))
                            ((string= flag "--key-file") (setf *key-file* value))
+                           ((string= flag "--rules") (setf *rules-file* value))
                            (t (usage))))))))
   (handler-case (uiop:quit (if (odos) 0 75))
     (error (e)

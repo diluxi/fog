@@ -620,11 +620,13 @@ False if jellyfin couldn't be reached, and it's kept for next time."
         (write-lines (join *state* "unsure")
                      (loop for (path . why) in (reverse (run-unsure run))
                            collect (format nil "~a~c~a" why #\Tab path))))
+      (loop for (path . why) in (reverse (run-unsure run))
+            do (say "left alone, ~a: ~a" why path))
       (say "~d linked, ~d upgraded, ~d kept out for a better copy, ~d left for linking by hand~@[ (~a)~]"
            (run-linked run) (run-upgraded run)
            (length (remove-duplicates (run-seconds run) :key #'first :test #'equal))
            (length (run-unsure run))
-           (and (run-unsure run) (join *state* "unsure")))
+           (and (run-unsure run) (not *dry-run*) (join *state* "unsure")))
       (report run gone))))
 
 (defun usage ()

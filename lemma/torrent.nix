@@ -140,12 +140,40 @@
 in {
 	# the device's wg-quick config from airvpn's client area (config
 	# generator, wireguard, any server): its keys and tunnel addresses
-	crypt.secrets.airvpn.text = todo "airvpn"
-		"take the wireguard config from airvpn's config generator, as it is.";
+	crypt.secrets.airvpn.text = ''
+		-----BEGIN PGP MESSAGE-----
+
+		wWwGFQQHYeuJ8PnxS6NfpKfm2+WoI81L/BIBB0DcTNTiSAYU3WDXhDHXHbFFGLnk
+		5w3CCjk19tAa+jYIDzB4lKGf9yD9vEIafhYWaXF938fbRMYfgHYdlAKAPiU010t+
+		PTZDeBr//k+nTdGNKQPBbAYVBIxeW63uQw6sWG5vC987KBsinEoSEgEHQCD9HlPL
+		gluhaPRvjAgcr15G1m4Lcp4CoJQdcwFb2WdFMOWSjDgBem9xCN2Rueyyc4ccLutW
+		m16uvstl1eV7Gsmq4t6a4MlYnshdU6AINP8b4NLBJgIJAgYKASGvyKcj6QgGeror
+		D6DXg/RMRYLAP26mLZCUEa5YooZFTfXtMex9l0Pik55fELlBTm+BxQovUGpaF46r
+		ZRDZE3HRaUmPlGXpdCWll0a3d4JCBncFd7As4tvS8DzCUrNrfVqvxRuYabeEqvvj
+		q47VNNnhklFR7ot3OopNM/qXHomUoEifgmU9sDH8fRPG5lP0YccV/XielC1OFTBh
+		WH6BW5zJ3QVW2D7JCT5DgSRoZckWTXnXnAekXNUN3FlJB7ON/ZZaKLFg8jLGUekH
+		ZRqgu3nqIjhwxiQbru09/aXDhbwRZIWhe9b5ZZ81doUTxE917XKUuPjzitzBSVfo
+		8xiPcYAaa/f+FFx+bO4c4ZtcE+87yopeU5RuJtu8IU9KoCLz61PXvPOt4esgnlCr
+		QCRqypqWn/EAC2xxyYd9UvbWr65IZ+4L1Wl33EOZXdF1UUV9ZhcqKTxKF26Ymvis
+		jGRPuLFcZCouEEbMyusBPautaigREBT31SxvVBuAo7rsZ8JFcAts5h/iTgM0z1R5
+		06FYvjMLtbyPCY53V97yOWcbvovGstSVzKqLHlC1liL3j4nRCKB11ofvUqdY4zKs
+		p+u6Btj9FNmJM8WbuhIZ1eLsQHl+kiC5oQmbNsIK2aeScRAUWw==
+		-----END PGP MESSAGE-----
+	'';
 	# the port forwarded to the account (client area, ports), as a number.
 	# it's airvpn's on every server, so it would link this repo to the account
-	crypt.secrets.airvpn-port.text = todo "airvpn-port"
-		"write the port airvpn forwards to the account, just the number.";
+	crypt.secrets.airvpn-port.text = ''
+		-----BEGIN PGP MESSAGE-----
+
+		wWwGFQQHYeuJ8PnxS6NfpKfm2+WoI81L/BIBB0AT3K7K+hPZJGzfiYATlYzLSSK0
+		+wgV75hUN4Y01nAeVjCiE6+ooO+PSOIirfijK+xmAufUSX9pOVe5A0h6miQToiAM
+		m9OVOm+7Qp7PXt3Gp63BbAYVBIxeW63uQw6sWG5vC987KBsinEoSEgEHQEdrazHd
+		Y9ysxcUBu85TDksutB/GIsOY/dqEzAfLxPA2MDX7jFOjBe6BMItTgebNR3IRAy9t
+		E+wVSlau3qzagtHf4K33iV/H50i5KJqU4E4ZDtJUAgkCBoIYkk/2Of4tAxbVKn2J
+		pMyx951Z7o7R4cRn2VSDyWLLX8g+0c8uu7W2fD3DLt5aEw67LK6Z2Z1a3VL8rsYj
+		2YeD/q/msZLiJKOvE4UgKfg0
+		-----END PGP MESSAGE-----
+	'';
 
 	systemd.services.airvpn = {
 		description = "network namespace that only reaches the internet through airvpn";

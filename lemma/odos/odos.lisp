@@ -246,52 +246,248 @@ subtitles; or nil and why not. SHOWS and FILMS index their roots' folders."
                      (list :film (fold film)))))
           (t (values nil (format nil "neither episode nor film: ~a" (field guess "type")))))))
 
+;;; which of two copies is better
+;;;
+;;; by what the files are, as ffprobe reads them, not by their names: guessit
+;;; doesn't know av1, and names are what a release says of itself. compared
+;;; key by key, the first difference deciding:
+;;;
+;;;   1. resolution, as a tier: 2160p, 1440p, 1080p, ... a cropped 1920x800
+;;;      is 1080p
+;;;   2. codec, by how much picture it keeps per bit: av1, hevc, vp9, h264,
+;;;      vc1, mpeg-2 and mpeg-4, anything else
+;;;   3. bit depth: 10 bits over 8, fewer bands in gradients
+;;;   4. hdr over sdr
+;;;   5. with all that equal, so the same codec at the same size: the video's
+;;;      bit rate, measured over the same stretch of both, since they're the
+;;;      same episode or film. it wins only by more than a sixth, so encodes
+;;;      about as good don't swap, and the one that's linked stays
+;;;
+;;; a copy ffprobe can't read loses to one it can.
+
+(defparameter +tiers+ '(4320 2160 1440 1080 720 576 480 360 240))
+(defparameter +codecs+ '("av1" "hevc" "vp9" "h264" "vc1" ("mpeg2video" "mpeg4")))
+(defparameter +margin+ 7/6 "How much more bit rate a copy needs to beat the linked one.")
+(defparameter +stretch+ '(120 30) "Where bit rates are measured: from 2:00, for 30 s.")
+
+(defun number-in (v)
+  "V, a number or a string of one (4500000, 23.976, 24000/1001), or nil."
+  (typecase v
+    (real v)
+    (string (ignore-errors
+             (let ((n (with-standard-io-syntax
+                        (let ((*read-eval* nil)) (read-from-string v)))))
+               (and (realp n) n))))))
+
+(defun ffprobe (&rest args)
+  (multiple-value-bind (out err code)
+      (uiop:run-program (cons "ffprobe" (list* "-v" "error" args))
+                        :output :string :error-output nil :ignore-error-status t)
+    (declare (ignore err))
+    (and (zerop code) out)))
+
+(defun probe (path)
+  "PATH's video as ffprobe reads it: (tier codec depth hdr width height fps
+duration), or nil."
+  (let* ((out (ffprobe "-print_format" "json" "-show_format" "-show_streams"
+                       (concatenate 'string "file:" path)))
+         (json (and out (ignore-errors (jzon:parse out))))
+         (video (and json
+                     (find-if (lambda (s)
+                                (and (equal (gethash "codec_type" s) "video")
+                                     ;; not cover art
+                                     (not (eql 1 (gethash "attached_pic" (gethash "disposition" s))))))
+                              (gethash "streams" json)))))
+    (when video
+      (let* ((w (or (number-in (gethash "width" video)) 0))
+             (h (or (number-in (gethash "height" video)) 0))
+             (size (max h (* w 9/16)))
+             (pix (gethash "pix_fmt" video))
+             (transfer (gethash "color_transfer" video)))
+        (list :tier (or (find-if (lambda (tier) (>= size (* tier 19/20))) +tiers+) 0)
+              :codec (let ((c (gethash "codec_name" video)))
+                       (- (length +codecs+)
+                          (or (position-if (lambda (k) (if (listp k) (member c k :test #'equal) (equal c k)))
+                                           +codecs+)
+                              (length +codecs+))))
+              :depth (if (and (stringp pix) (search "10" pix)) 10 8)
+              :hdr (if (member transfer '("smpte2084" "arib-std-b67") :test #'equal) 1 0)
+              :name (format nil "~dp ~a~:[~; 10-bit~]~:[~; hdr~]"
+                            (or (find-if (lambda (tier) (>= size (* tier 19/20))) +tiers+) h)
+                            (gethash "codec_name" video)
+                            (and (stringp pix) (search "10" pix))
+                            (member transfer '("smpte2084" "arib-std-b67") :test #'equal))
+              :duration (number-in (gethash "duration" (gethash "format" json))))))))
+
+(defun bit-rate (path duration)
+  "Bits a second of PATH's video over +stretch+, or from the start if it's
+shorter; nil if ffprobe can't say."
+  (destructuring-bind (from span) +stretch+
+    (let* ((from (if (and duration (> duration (+ from span))) from 0))
+           (out (ffprobe "-select_streams" "v:0" "-read_intervals" (format nil "~d%+~d" from span)
+                         "-show_entries" "packet=size,pts_time" "-of" "csv=p=0"
+                         (concatenate 'string "file:" path)))
+           (packets (and out (loop for line in (uiop:split-string out :separator '(#\Newline))
+                                   for (time size) = (uiop:split-string line :separator ",")
+                                   for tn = (number-in time) and sn = (number-in size)
+                                   when (and tn sn) collect (cons tn sn)))))
+      (when (cdr packets)
+        (let ((first (reduce #'min packets :key #'car))
+              (last (reduce #'max packets :key #'car)))
+          (when (> last first)
+            (/ (* 8 (reduce #'+ packets :key #'cdr)) (- last first))))))))
+
+(defun better (new old)
+  "Whether the copy at NEW beats the one at OLD, and why, as a string."
+  (let ((a (probe new)) (b (probe old)))
+    (cond ((null a) (values nil "ffprobe can't read it"))
+          ((null b) (values t "ffprobe can't read the linked one"))
+          (t (loop for key in '(:tier :codec :depth :hdr)
+                   for x = (getf a key) and y = (getf b key)
+                   when (/= x y)
+                     do (return-from better
+                          (values (> x y) (format nil "~a ~:[loses to~;over~] ~a"
+                                                  (getf a :name) (> x y) (getf b :name)))))
+             (let ((x (bit-rate new (getf a :duration)))
+                   (y (bit-rate old (getf b :duration))))
+               (cond ((or (null x) (null y)) (values nil "bit rates unknown, the linked one stays"))
+                     (t (let ((win (> x (* y +margin+))))
+                          (values win (format nil "~a at ~,1f Mbit/s ~:[stays behind~;over~] ~,1f Mbit/s"
+                                              (getf a :name) (/ x 1000000) win (/ y 1000000)))))))))))
+
 ;;; the run
 
 (defstruct run
-  (linked 0) (unsure '()) (changed '()))
+  (linked 0) (upgraded 0) (unsure '()) (changed '()) (seconds '())
+  ;; in a dry run, where links would be, as nothing is made
+  (planned (make-hash-table :test 'equal)))
 
 (defun note-unsure (run path why)
   (push (cons path why) (run-unsure run)))
 
+(defun linked-to (run dest)
+  "What DEST links to, or would after this dry run; nil if nothing's there,
+:taken if something else is."
+  (or (gethash dest (run-planned run))
+      (case (kind dest)
+        ((nil) nil)
+        (:link (target dest))
+        (t :taken))))
+
+(defun make-link (run target dest &optional replace)
+  "DEST links to TARGET; a REPLACEd link is swapped in one rename."
+  (cond (*dry-run* (setf (gethash dest (run-planned run)) target))
+        (t (ensure-directories (dirname dest) *links*)
+           (if replace
+               (let ((new (concatenate 'string dest ".odos")))
+                 (when (kind new) (sb-posix:unlink new))
+                 (sb-posix:symlink target new)
+                 (sb-posix:rename new dest))
+               (sb-posix:symlink target dest))
+           (push (dirname dest) (run-changed run)))))
+
+(defun drop-sidecars (dest)
+  "Removes the subtitle links beside DEST's video, which belong to the copy
+it linked before. Returns what they linked to."
+  (let* ((stem (let ((name (basename dest))) (subseq name 0 (position #\. name :from-end t))))
+         (dir (dirname dest))
+         dropped)
+    (dolist (name (entries dir) dropped)
+      (let ((path (join dir name)))
+        (when (and (eq (kind path) :link)
+                   (> (length name) (length stem))
+                   (string= stem name :end2 (length stem))
+                   (char= (char name (length stem)) #\.)
+                   (member (extension name) +subtitles+ :test #'string=))
+          (push (target path) dropped)
+          (if *dry-run*
+              (say "would remove ~a" path)
+              (sb-posix:unlink path)))))))
+
 (defun put (run target dest)
-  "Links DEST to TARGET. A place taken by something else is left as it is."
-  (case (kind dest)
-    ((nil)
-     (cond (*dry-run* (say "would link ~a -> ~a" dest target))
-           (t (ensure-directories (dirname dest) *links*)
-              (sb-posix:symlink target dest)
-              (say "~a -> ~a" dest target)
-              (push (dirname dest) (run-changed run))))
-     (incf (run-linked run))
-     t)
-    (:link (or (string= (target dest) target)
-               (progn (note-unsure run target (format nil "~a links elsewhere" dest)) nil)))
-    (t (note-unsure run target (format nil "~a is taken" dest)) nil)))
+  "Links DEST to TARGET, a subtitle: a place taken is left as it is."
+  (let ((there (linked-to run dest)))
+    (cond ((null there)
+           (make-link run target dest)
+           (say "~:[~;would link ~]~a -> ~a" *dry-run* dest target)
+           (incf (run-linked run))
+           t)
+          ((equal there target) t)
+          (t (note-unsure run target (format nil "~a is taken" dest)) nil))))
+
+(defun put-video (run target dest)
+  "Links DEST to the video TARGET. Where another copy is linked, the better
+of the two is. Returns :linked, and the copy it replaced if it did, or
+:second when the other copy stays, or nil when it can't be placed."
+  (let ((there (linked-to run dest)))
+    (cond ((null there)
+           (make-link run target dest)
+           (say "~:[~;would link ~]~a -> ~a" *dry-run* dest target)
+           (incf (run-linked run))
+           :linked)
+          ((equal there target) :linked)
+          ((eq there :taken) (note-unsure run target (format nil "~a is taken" dest)) nil)
+          (t (multiple-value-bind (win why) (better target there)
+               (cond (win
+                      ;; the copy that was linked is a second now, with its
+                      ;; subtitles
+                      (dolist (sub (drop-sidecars dest))
+                        (push (list sub dest there) (run-seconds run)))
+                      (push (list there dest there) (run-seconds run))
+                      (make-link run target dest t)
+                      (say "~:[upgraded~;would upgrade~] ~a: ~a~%  now ~a~%  was ~a"
+                           *dry-run* dest why target there)
+                      (incf (run-upgraded run))
+                      (values :linked there))
+                     (t (say "~a stays: ~a~%  kept ~a~%  over ~a" dest why there target)
+                        (push (list target dest target) (run-seconds run))
+                        :second)))))))
+
+(defun torrent (path)
+  "The torrent PATH came with, as far as the seed tree says: the folder at its
+top, or nothing for a file there on its own."
+  (let* ((rel (relative *video* path)) (slash (position #\/ rel)))
+    (if slash (subseq rel 0 slash) "")))
 
 (defun link-all (run paths)
   (let* ((guesses (guess paths))
          (shows (folders *shows*))
          (films (folders *films*))
+         ;; what became of each video, by what it is and the torrent it came
+         ;; with, for its subtitles: where it's linked, or (:second place video)
          (stems (make-hash-table :test 'equal)))
     ;; videos first, so subtitles find where theirs went
     (loop for path in paths and g in guesses
           when (member (extension path) +videos+ :test #'string=)
-            do (if (find "Sample" (fields g "other") :test #'equal)
-                   nil
-                   (multiple-value-bind (stem key) (place g shows films)
-                     (cond ((null stem) (note-unsure run path key))
-                           ((put run path (format nil "~a.~a" stem (extension path)))
-                            (setf (gethash key stems) stem))))))
+            do (unless (find "Sample" (fields g "other") :test #'equal)
+                 (multiple-value-bind (stem key) (place g shows films)
+                   (if (null stem)
+                       (note-unsure run path key)
+                       (let ((dest (format nil "~a.~a" stem (extension path))))
+                         (multiple-value-bind (result replaced) (put-video run path dest)
+                           (case result
+                             (:linked
+                              (setf (gethash (cons key (torrent path)) stems) stem)
+                              ;; a copy linked earlier in this run lost its place
+                              (when replaced
+                                (setf (gethash (cons key (torrent replaced)) stems)
+                                      (list :second dest replaced))))
+                             ;; its subtitles stay out with it
+                             (:second
+                              (setf (gethash (cons key (torrent path)) stems)
+                                    (list :second dest path))))))))))
     (loop for path in paths and g in guesses
           when (member (extension path) +subtitles+ :test #'string=)
             do (multiple-value-bind (stem key) (place g shows films)
-                 (let ((stem (and stem (gethash key stems)))
+                 (let ((stem (and stem (gethash (cons key (torrent path)) stems)))
                        (language (field g "subtitle_language")))
-                   (when stem
-                     (put run path (format nil "~a~@[.~a~].~a" stem
-                                           (and (stringp language) language)
-                                           (extension path)))))))))
+                   (cond ((stringp stem)
+                          (put run path (format nil "~a~@[.~a~].~a" stem
+                                                (and (stringp language) language)
+                                                (extension path))))
+                         ((consp stem)
+                          (destructuring-bind (dest video) (rest stem)
+                            (push (list path dest video) (run-seconds run))))))))))
 
 ;;; jellyfin
 
@@ -328,13 +524,16 @@ them."
 
 (defun pending-file () (join *state* "pending"))
 
-(defun read-pending ()
-  (with-open-file (in (pending-file) :if-does-not-exist nil :external-format :utf-8)
-    (when in
+(defun read-pairs (file)
+  "FILE's lines as (a . b), from a<tab>b; nothing if there's no FILE."
+  (when (eq (kind file) :file)
+    (with-open-file (in file :external-format :utf-8)
       (loop for line = (read-line in nil)
             while line
             for tab = (position #\Tab line)
             when tab collect (cons (subseq line 0 tab) (subseq line (1+ tab)))))))
+
+(defun read-pending () (read-pairs (pending-file)))
 
 (defun write-lines (file lines)
   (with-open-file (out (concatenate 'string file ".new") :direction :output
@@ -343,8 +542,38 @@ them."
   ;; not rename-file, which would give the new name the old one's type
   (sb-posix:rename (concatenate 'string file ".new") file))
 
-(defun write-pending (updates)
-  (write-lines (pending-file) (loop for (type . path) in updates collect (format nil "~a~c~a" type #\Tab path))))
+(defun write-pairs (file pairs)
+  (write-lines file (loop for (a . b) in pairs collect (format nil "~a~c~a" a #\Tab b))))
+
+(defun write-pending (updates) (write-pairs (pending-file) updates))
+
+;;; copies that lost: each is passed over, unread, while another copy is
+;;; linked at its place. if that goes, or this copy's own video comes back,
+;;; it's a candidate again. a video is its own video; a subtitle's is the
+;;; video it came with
+
+(defun seconds-file () (join *state* "seconds"))
+
+(defun read-seconds ()
+  "(copy place video) each."
+  (loop for (copy . rest) in (read-pairs (seconds-file))
+        for tab = (position #\Tab rest)
+        when tab collect (list copy (subseq rest 0 tab) (subseq rest (1+ tab)))))
+
+(defun write-seconds (seconds)
+  (write-lines (seconds-file)
+               (loop for (copy place video) in seconds
+                     collect (format nil "~a~c~a~c~a" copy #\Tab place #\Tab video))))
+
+(defun settled (seconds)
+  "The SECONDS that still hold."
+  (remove-if-not (lambda (s)
+                   (destructuring-bind (copy place video) s
+                     (and (exists copy)
+                          (eq (kind place) :link)
+                          (exists place)
+                          (not (equal (target place) video)))))
+                 seconds))
 
 (defun report (run gone)
   "What changed is added to what jellyfin hasn't heard yet, which is told.
@@ -379,15 +608,22 @@ False if jellyfin couldn't be reached, and it's kept for next time."
     (dolist (root (list *shows* *films*))
       (ensure-directories root *links*)))
   (multiple-value-bind (linked gone) (survey)
-    (let ((run (make-run))
-          (paths (candidates linked)))
+    (let* ((run (make-run))
+           (seconds (settled (read-seconds)))
+           (paths (remove-if (lambda (p) (assoc p seconds :test #'equal))
+                             (candidates linked))))
       (when paths (link-all run paths))
       (unless *dry-run*
+        ;; the latest word on each copy
+        (write-seconds (settled (remove-duplicates (append seconds (reverse (run-seconds run)))
+                                                   :key #'first :test #'equal :from-end nil)))
         (write-lines (join *state* "unsure")
                      (loop for (path . why) in (reverse (run-unsure run))
                            collect (format nil "~a~c~a" why #\Tab path))))
-      (say "~d linked, ~d left for linking by hand~@[ (~a)~]"
-           (run-linked run) (length (run-unsure run))
+      (say "~d linked, ~d upgraded, ~d kept out for a better copy, ~d left for linking by hand~@[ (~a)~]"
+           (run-linked run) (run-upgraded run)
+           (length (remove-duplicates (run-seconds run) :key #'first :test #'equal))
+           (length (run-unsure run))
            (and (run-unsure run) (join *state* "unsure")))
       (report run gone))))
 

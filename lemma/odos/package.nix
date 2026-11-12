@@ -1,4 +1,4 @@
-{ lib, stdenvNoCC, sbcl, makeWrapper, python3Packages, curl }: let
+{ lib, stdenvNoCC, sbcl, makeWrapper, python3Packages, curl, ffmpeg-headless }: let
 	lisp = sbcl.withPackages (ps: [ ps.com_dot_inuoe_dot_jzon ]);
 in stdenvNoCC.mkDerivation {
 	pname = "odos";
@@ -20,11 +20,11 @@ in stdenvNoCC.mkDerivation {
 			--eval '(sb-ext:save-lisp-and-die "odos" :executable t :toplevel (function odos:main) :save-runtime-options t :compression t)'
 		runHook postBuild
 	'';
-	# guessit reads the names, curl tells jellyfin
+	# guessit reads the names, ffprobe the files, curl tells jellyfin
 	installPhase = ''
 		runHook preInstall
 		install -Dm755 odos $out/bin/odos
-		wrapProgram $out/bin/odos --prefix PATH : ${lib.makeBinPath [ python3Packages.guessit curl ]}
+		wrapProgram $out/bin/odos --prefix PATH : ${lib.makeBinPath [ python3Packages.guessit ffmpeg-headless curl ]}
 		runHook postInstall
 	'';
 	# the image is sbcl's runtime with a core appended; stripping cuts it off

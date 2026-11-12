@@ -163,7 +163,14 @@ switched to, so a rewrite stops deploys until its state is fixed by hand.
   video, by what guessit (run as a CLI, one call per run) makes of the
   names. Only files nothing under `/srv/kino` links to are read, so hand-made
   links stand. Links whose file is gone are removed. What it can't place
-  surely (no season, a taken place) is listed in `/var/lib/odos/unsure`.
+  surely (no season, a place taken by a file) is listed in
+  `/var/lib/odos/unsure`. Where two copies of the same episode or film are
+  seeded, the better one is linked, by what ffprobe reads (guessit doesn't
+  know AV1): resolution tier, then codec (av1 > hevc > vp9 > h264 > vc1 >
+  mpeg), bit depth, HDR, and with all that equal, the video's bit rate over
+  the same 30 s of both, which must win by more than a sixth. The losers
+  are recorded in `/var/lib/odos/seconds` and not read again while the
+  winner stays linked; if it goes, they compete again.
   Runs on Transmission's done-hook (a marker in `/run/odos`, through a path
   unit), daily, and by hand with `systemctl start odos`; `odos --dry-run`
   shows what it would do. It tells Jellyfin which folders changed with the

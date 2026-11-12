@@ -10,6 +10,7 @@
 		./odos.nix
 		./box.nix
 		./xmpp.nix
+		./irc.nix
 		./torrent.nix
 		./phi.nix
 		./deploy.nix

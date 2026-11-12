@@ -95,6 +95,9 @@ in {
 		settings = {
 			theme = "auto";
 			server.address = "tcp://127.0.0.1:9091/";
+			# caddy's forward_auth. named, since naming any endpoint (irc.nix
+			# does) drops authelia's defaults
+			server.endpoints.authz.forward-auth.implementation = "ForwardAuth";
 			log = { level = "info"; format = "text"; };
 
 			authentication_backend.ldap = {

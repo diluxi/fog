@@ -193,6 +193,13 @@ switched to, so a rewrite stops deploys until its state is fixed by hand.
   shows what it would do. It tells Jellyfin which folders changed with the
   generated key `crypt.generated.jellyfin-api`, which kino's pre-start
   writes into Jellyfin's `ApiKeys` as `odos`.
+- soju (`lemma/irc.nix`): an IRC bouncer at irc.amartia.online:6697 (TLS,
+  caddy's certificate, copied in and reloaded on renewal) for the lldap
+  group `irc`. soju's `auth http` asks a loopback Caddy site, which asks
+  Authelia's `basic` authz endpoint for irc's rule; a first login makes the
+  soju user. One factor, like xmpp. Naming that endpoint drops Authelia's
+  defaults, so `id.nix` names `forward-auth` too. History is soju's sqlite,
+  expiring after a year.
 
 ### Next, as agreed
 

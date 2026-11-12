@@ -7,6 +7,7 @@
 		./vpn.nix
 		./dn42.nix
 		./kino.nix
+		./odos.nix
 		./box.nix
 		./xmpp.nix
 		./torrent.nix

@@ -60,9 +60,7 @@
 	# folder holding the folder's path (their names don't matter). options.xml, its settings from the
 	# ui, keeps a copy of the paths too. libraries named here are made to
 	# match at every start; others, and every other setting, are left alone
-	libraries = {
-		TV = { type = null; paths = [ "/srv/kino" ]; };
-	};
+	libraries = config.kino.libraries;
 	libraryScript = name: l: let
 		dir = "${dataDir}/root/default/${name}";
 		xml = lib.replaceStrings [ "&" "<" ">" ] [ "&amp;" "&lt;" "&gt;" ];
@@ -94,65 +92,99 @@
 		fi
 	'';
 in {
-	services.jellyfin = {
-		enable = true;
-		openFirewall = false; # only via caddy or the fog interface
+	options.kino.libraries = lib.mkOption {
+		description = "Jellyfin's libraries, made to match at every start.";
+		default = {};
+		type = lib.types.attrsOf (lib.types.submodule {
+			options = {
+				type = lib.mkOption {
+					description = "movies, tvshows, music, …, or null for mixed.";
+					type = lib.types.nullOr lib.types.str;
+					default = null;
+				};
+				paths = lib.mkOption { type = lib.types.listOf lib.types.str; };
+			};
+		});
 	};
 
-	# who may watch: members of `kino`, added in lldap's ui. lldap_admin
-	# members become jellyfin admins
-	lldap.groups = [ "kino" ];
-	invite.groups.kino = {
-		label = "Kino";
-		info = "films and series at https://${kino}, in a browser or the Jellyfin apps";
-	};
-	lldap.serviceAccounts.jellyfin.groups = [ "lldap_strict_readonly" ];
+	config = {
+		services.jellyfin = {
+			enable = true;
+			openFirewall = false; # only via caddy or the fog interface
+		};
 
-	systemd.services.jellyfin = {
-		# its libraries are in /srv/kino (lemma/box.nix), linking into
-		# /srv/seed/video. it reads both and writes neither
-		unitConfig.RequiresMountsFor = [ "/srv/kino" "/srv/seed/video" ];
-		serviceConfig.ReadOnlyPaths = [ "/srv/kino" "/srv/seed" ];
-		wants = [ "lldap-accounts.service" ];
-		after = [ "lldap-accounts.service" ];
-		serviceConfig.LoadCredential = [ "ldap:${account.passwordFile}" ];
-		path = [ pkgs.gawk ];
-		preStart = lib.concatStrings (lib.mapAttrsToList libraryScript libraries) + ''
-			plugins=${lib.escapeShellArg "${dataDir}/plugins"}
-			dir="$plugins/${ldapPlugin.name}_${ldapPlugin.version}"
-			if [ ! -d "$dir" ]; then
-				# jellyfin rewrites meta.json, so a copy rather than a link
-				rm -rf "$plugins/${ldapPlugin.name}_"*
-				mkdir -p "$plugins"
-				cp -r ${ldapPlugin.src} "$dir"
-				chmod -R u+w "$dir"
-			fi
+		# who may watch: members of `kino`, added in lldap's ui. lldap_admin
+		# members become jellyfin admins
+		lldap.groups = [ "kino" ];
+		invite.groups.kino = {
+			label = "Kino";
+			info = "films and series at https://${kino}, in a browser or the Jellyfin apps";
+		};
+		lldap.serviceAccounts.jellyfin.groups = [ "lldap_strict_readonly" ];
+		crypt.generated.jellyfin-api = {};
 
-			conf="$plugins/configurations/LDAP-Auth.xml"
-			mkdir -p "$plugins/configurations"
-			users='<LdapUsers />'
-			if [ -f "$conf" ]; then
-				old=$(awk '/<LdapUsers *\/>/ { print; exit }
-					/<LdapUsers>/ { f = 1 } f { print } /<\/LdapUsers>/ { exit }' "$conf")
-				[ -n "$old" ] && users=$old
-			fi
-			# the password comes from a file and the links from the environment,
-			# so neither ends up on a command line
-			USERS=$users awk -v pwfile="$CREDENTIALS_DIRECTORY/ldap" '
-				BEGIN { getline pw <pwfile }
-				{ sub(/^\t+/, "") } # nix strips spaces from indented strings, not tabs
-				/@LDAPUSERS@/ { print ENVIRON["USERS"]; next }
-				{ gsub("@BINDPW@", pw); print }
-			' ${ldapConfig} >"$conf.new"
-			mv "$conf.new" "$conf"
-		'';
-	};
+		systemd.services.jellyfin = {
+			# its libraries are in /srv/kino (lemma/box.nix), linking into
+			# /srv/seed/video. it reads both and writes neither
+			unitConfig.RequiresMountsFor = [ "/srv/kino" "/srv/seed/video" ];
+			serviceConfig.ReadOnlyPaths = [ "/srv/kino" "/srv/seed" ];
+			wants = [ "lldap-accounts.service" ];
+			after = [ "lldap-accounts.service" ];
+			serviceConfig.LoadCredential = [
+				"ldap:${account.passwordFile}"
+				"api:${config.crypt.generated.jellyfin-api.path}"
+			];
+			path = [ pkgs.gawk pkgs.sqlite ];
+			preStart = lib.concatStrings (lib.mapAttrsToList libraryScript libraries) + ''
+				# odos' api key (lemma/odos.nix), which jellyfin only knows from its
+				# database. through stdin, so the key never shows on a command
+				# line. a missing database (a first start) waits for the next one
+				db=${lib.escapeShellArg "${dataDir}/data/jellyfin.db"}
+				if [ -f "$db" ]; then
+					key=$(<"$CREDENTIALS_DIRECTORY/api")
+					printf '%s\n' \
+						"DELETE FROM ApiKeys WHERE Name = 'odos' AND AccessToken != '$key';" \
+						"INSERT INTO ApiKeys (AccessToken, DateCreated, DateLastActivity, Name)" \
+						"SELECT '$key', datetime('now'), datetime('now'), 'odos'" \
+						"WHERE NOT EXISTS (SELECT 1 FROM ApiKeys WHERE AccessToken = '$key');" |
+						sqlite3 "$db" || echo "couldn't add odos' api key" >&2
+				fi
+				plugins=${lib.escapeShellArg "${dataDir}/plugins"}
+				dir="$plugins/${ldapPlugin.name}_${ldapPlugin.version}"
+				if [ ! -d "$dir" ]; then
+					# jellyfin rewrites meta.json, so a copy rather than a link
+					rm -rf "$plugins/${ldapPlugin.name}_"*
+					mkdir -p "$plugins"
+					cp -r ${ldapPlugin.src} "$dir"
+					chmod -R u+w "$dir"
+				fi
 
-	# kino.cpli.dev still answers until the apps point at amartia.online
-	services.caddy.virtualHosts.${kino} = {
-		serverAliases = [ "kino.${config.networking.fqdn}" ];
-		extraConfig = ''
-			reverse_proxy 127.0.0.1:8096
-		'';
+				conf="$plugins/configurations/LDAP-Auth.xml"
+				mkdir -p "$plugins/configurations"
+				users='<LdapUsers />'
+				if [ -f "$conf" ]; then
+					old=$(awk '/<LdapUsers *\/>/ { print; exit }
+						/<LdapUsers>/ { f = 1 } f { print } /<\/LdapUsers>/ { exit }' "$conf")
+					[ -n "$old" ] && users=$old
+				fi
+				# the password comes from a file and the links from the environment,
+				# so neither ends up on a command line
+				USERS=$users awk -v pwfile="$CREDENTIALS_DIRECTORY/ldap" '
+					BEGIN { getline pw <pwfile }
+					{ sub(/^\t+/, "") } # nix strips spaces from indented strings, not tabs
+					/@LDAPUSERS@/ { print ENVIRON["USERS"]; next }
+					{ gsub("@BINDPW@", pw); print }
+				' ${ldapConfig} >"$conf.new"
+				mv "$conf.new" "$conf"
+			'';
+		};
+
+		# kino.cpli.dev still answers until the apps point at amartia.online
+		services.caddy.virtualHosts.${kino} = {
+			serverAliases = [ "kino.${config.networking.fqdn}" ];
+			extraConfig = ''
+				reverse_proxy 127.0.0.1:8096
+			'';
+		};
 	};
 }

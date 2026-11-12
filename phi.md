@@ -156,6 +156,19 @@ switched to, so a rewrite stops deploys until its state is fixed by hand.
   through wg-portal's API, with keys from `crypt.generated.vpn-fog-<name>`.
   Roles: `admin` (lldap_admin, everything) and `torrent` (the RPC on 9092,
   for Tremotesf). `fog` and `dn42` stay networkd's.
+- odos (`lemma/odos.nix`, Common Lisp in `lemma/odos/`), "way" in Greek:
+  links what's under `/srv/seed/video` into Jellyfin's two libraries,
+  `/srv/kino/TV/Show (Year)/Season NN/Show SxxEyy.ext` and
+  `/srv/kino/Films/Title (Year)/Title (Year).ext`, subtitles beside their
+  video, by what guessit (run as a CLI, one call per run) makes of the
+  names. Only files nothing under `/srv/kino` links to are read, so hand-made
+  links stand. Links whose file is gone are removed. What it can't place
+  surely (no season, a taken place) is listed in `/var/lib/odos/unsure`.
+  Runs on Transmission's done-hook (a marker in `/run/odos`, through a path
+  unit), daily, and by hand with `systemctl start odos`; `odos --dry-run`
+  shows what it would do. It tells Jellyfin which folders changed with the
+  generated key `crypt.generated.jellyfin-api`, which kino's pre-start
+  writes into Jellyfin's `ApiKeys` as `odos`.
 
 ### Next, as agreed
 

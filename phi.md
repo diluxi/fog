@@ -122,7 +122,12 @@ switched to, so a rewrite stops deploys until its state is fixed by hand.
   AirVPN server shares one key, so lemma0 picks a server's endpoint at
   runtime from the public status API, least loaded first, narrowed by
   `/var/lib/airvpn/prefer` (names, country codes or cities).
-  `systemctl start airvpn-switch` moves to another server.
+  `systemctl start airvpn-switch` moves to another server. Prowlarr runs
+  in the same namespace (trackers see one address for searching and
+  announcing) at prowlarr.amartia.online for `torrent`, its own login off
+  (Authelia's), its API key generated (`crypt.generated.prowlarr-api`) and
+  reachable on the host at 127.0.0.1:9697. Transmission, as its download
+  client, is 127.0.0.1:9091 from inside.
 - Invitations (`lemma/invite.nix`, Go in `lemma/invite/`): lldap_admin
   makes single-use links at invite.amartia.online/new for groups that
   modules declare in `invite.groups`; the invitee picks a username, a

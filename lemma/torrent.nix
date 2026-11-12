@@ -136,6 +136,25 @@
 		connect
 	'';
 
+	# what a service needs to live inside the namespace: joining a namespace
+	# the host's user namespace owns needs privileges a private user
+	# namespace wouldn't have, and names resolve through airvpn's resolvers,
+	# not the host's: glibc loses nscd (and resolved behind it) and reads the
+	# stub's file, which is airvpn's here
+	inside = {
+		NetworkNamespacePath = netns;
+		PrivateUsers = false;
+		InaccessiblePaths = [ "-/run/nscd" "-/run/systemd/resolve/io.systemd.Resolve" ];
+		BindReadOnlyPaths = [ "${run}/resolv.conf:/run/systemd/resolve/stub-resolv.conf" ];
+	};
+
+	# prowlarr, the indexers' search, inside too: trackers see one address
+	# for searching and announcing, and it hands torrents to transmission
+	# at 127.0.0.1:${toString rpc} there
+	prowlarr = "prowlarr.amartia.online";
+	prowlarrPort = 9696; # inside the namespace
+	prowlarrProxy = 9697; # outside it, for caddy and whatever searches through it
+
 	tools = with pkgs; [ iproute2 iputils wireguard-tools jq curl coreutils gnused gnugrep ];
 in {
 	# the device's wg-quick config from airvpn's client area (config
@@ -245,17 +264,7 @@ in {
 		unitConfig.RequiresMountsFor = [ "/srv/seed" "/srv/seed/video" ];
 		bindsTo = [ "airvpn.service" ];
 		after = [ "airvpn.service" ];
-		serviceConfig = {
-			NetworkNamespacePath = netns;
-			# joining a namespace the host's user namespace owns needs
-			# privileges a private user namespace wouldn't have
-			PrivateUsers = false;
-			# names resolve through airvpn's resolvers, not the host's: glibc
-			# loses nscd (and resolved behind it) and reads the stub's file,
-			# which is airvpn's here
-			InaccessiblePaths = [ "-/run/nscd" "-/run/systemd/resolve/io.systemd.Resolve" ];
-			BindReadOnlyPaths = [ "${run}/resolv.conf:/run/systemd/resolve/stub-resolv.conf" ];
-		};
+		serviceConfig = inside;
 	};
 
 	# the web ui and rpc, carried out of the namespace: the socket is the
@@ -297,11 +306,10 @@ in {
 		label = "Torrents";
 		info = "https://${torrent}, after a second factor you set up on first login";
 	};
-	services.authelia.instances.main.settings.access_control.rules = [{
-		domain = torrent;
-		subject = [ "group:torrent" ];
-		policy = "two_factor";
-	}];
+	services.authelia.instances.main.settings.access_control.rules = [
+		{ domain = torrent; subject = [ "group:torrent" ]; policy = "two_factor"; }
+		{ domain = prowlarr; subject = [ "group:torrent" ]; policy = "two_factor"; }
+	];
 
 	services.caddy.virtualHosts.${torrent}.extraConfig = ''
 		forward_auth 127.0.0.1:9091 {
@@ -309,5 +317,49 @@ in {
 			copy_headers Remote-User Remote-Groups Remote-Email Remote-Name
 		}
 		reverse_proxy 127.0.0.1:${toString proxy}
+	'';
+
+	services.prowlarr = {
+		enable = true;
+		settings = {
+			server = { bindaddress = "127.0.0.1"; port = prowlarrPort; };
+			# authelia stands in front, as for transmission
+			auth = { method = "External"; required = "DisabledForLocalAddresses"; };
+		};
+		# its api key, made on lemma0, for what searches through it
+		environmentFiles = [ config.crypt.generated.prowlarr-api.path ];
+	};
+	crypt.generated.prowlarr-api.script = ''
+		printf 'PROWLARR__AUTH__APIKEY=%s\n' "$(openssl rand -hex 16)" >$out
+	'';
+	systemd.services.prowlarr = {
+		bindsTo = [ "airvpn.service" ];
+		after = [ "airvpn.service" ];
+		serviceConfig = inside;
+	};
+
+	# its web ui and api, carried out of the namespace like transmission's
+	systemd.sockets.prowlarr-proxy = {
+		wantedBy = [ "sockets.target" ];
+		listenStreams = [ "127.0.0.1:${toString prowlarrProxy}" ];
+	};
+	systemd.services.prowlarr-proxy = {
+		partOf = [ "prowlarr-proxy.socket" ];
+		requires = [ "prowlarr.service" ];
+		bindsTo = [ "airvpn.service" ];
+		after = [ "prowlarr.service" "airvpn.service" ];
+		serviceConfig = {
+			ExecStart = "${config.systemd.package}/lib/systemd/systemd-socket-proxyd 127.0.0.1:${toString prowlarrPort}";
+			NetworkNamespacePath = netns;
+			DynamicUser = true;
+		};
+	};
+
+	services.caddy.virtualHosts.${prowlarr}.extraConfig = ''
+		forward_auth 127.0.0.1:9091 {
+			uri /api/authz/forward-auth
+			copy_headers Remote-User Remote-Groups Remote-Email Remote-Name
+		}
+		reverse_proxy 127.0.0.1:${toString prowlarrProxy}
 	'';
 }

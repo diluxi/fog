@@ -171,7 +171,8 @@ switched to, so a rewrite stops deploys until its state is fixed by hand.
   seasons and extras, Kizumonogatari three films), `odos.rules` in
   `lemma/odos-rules.nix` says it: a path under the seed tree is a TMDb film,
   or a show whose files' episode n is episode n+offset of a season, by
-  ranges. Folder ordinals (`14. Owarimonogatari`) go before guessit reads.
+  ranges; a range with `parts` is the parts of one episode
+  (`S04E01 - part1`, `- part2`), which Jellyfin plays as one. Folder ordinals (`14. Owarimonogatari`) go before guessit reads.
   Only files nothing under `/srv/kino` links to are read, so hand-made
   links stand. Links whose file is gone are removed. What it can't place
   surely (no season, a place taken by a file) is listed in

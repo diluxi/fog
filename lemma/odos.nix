@@ -15,7 +15,7 @@
 	rule = path: r:
 		if r.film != null then "(${lisp path} :film ${toString r.film})\n"
 		else "(${lisp path} :show ${toString r.show} :episodes (${lib.concatMapStrings (e:
-			"(${toString e.from} ${if e.to == null then "nil" else toString e.to} ${toString e.season} ${toString e.offset})") r.episodes}))\n";
+			"(${toString e.from} ${if e.to == null then "nil" else toString e.to} ${toString e.season} ${toString e.offset} ${if e.parts then "t" else "nil"})") r.episodes}))\n";
 	rules = pkgs.writeText "odos-rules" (lib.concatStrings (lib.mapAttrsToList rule config.odos.rules));
 in {
 	imports = [ ./odos-rules.nix ];
@@ -39,13 +39,18 @@ in {
 				};
 				offset = lib.mkOption { type = lib.types.int; default = 0; };
 				episodes = lib.mkOption {
-					description = "Episode n of the files, from `from` to `to` (or on), is episode n+offset of `season`.";
+					description = ''
+						Episode n of the files, from `from` to `to` (or on), is episode
+						n+offset of `season`; or with `parts`, part n-from+1 of the one
+						episode from+offset, which Jellyfin plays as one.
+					'';
 					type = lib.types.listOf (lib.types.submodule {
 						options = {
 							from = lib.mkOption { type = lib.types.ints.unsigned; default = 1; };
 							to = lib.mkOption { type = lib.types.nullOr lib.types.ints.unsigned; default = null; };
 							season = lib.mkOption { type = lib.types.ints.unsigned; };
 							offset = lib.mkOption { type = lib.types.int; default = 0; };
+							parts = lib.mkOption { type = lib.types.bool; default = false; };
 						};
 					});
 					default = lib.optional (config.season != null) { inherit (config) season offset; };

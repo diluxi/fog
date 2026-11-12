@@ -357,9 +357,11 @@ jellyfin can't be asked."
 
 ;;; rules: where a person says a torrent's folder or file is what, for what
 ;;; no name says well enough. one is (path :film id) or (path :show id
-;;; :episodes ((from to season offset) ...)): episode n of the files, from
-;;; FROM to TO (or on), is episode n+OFFSET of SEASON. paths are relative to
-;;; the seed tree, and the longest that holds a file is its rule
+;;; :episodes ((from to season offset parts) ...)): episode n of the files,
+;;; from FROM to TO (or on), is episode n+OFFSET of SEASON; or with PARTS,
+;;; part n-FROM+1 of the one episode FROM+OFFSET, which jellyfin plays as one
+;;; (an hour-long premiere in two files). paths are relative to the seed
+;;; tree, and the longest that holds a file is its rule
 
 (defvar *rules* '())
 
@@ -409,13 +411,16 @@ name (Owarimonogatari 2nd Season 01 - Mayoi Hell)."
                                               episodes))))
                (cond ((null ns) (values nil "no episode number for the rule"))
                      ((null segment) (values nil (format nil "the rule has no season for episode ~d" (first ns))))
-                     (t (destructuring-bind (from to season offset) segment
-                          (declare (ignore from to))
+                     (t (destructuring-bind (from to season offset &optional parts) segment
+                          (declare (ignore to))
                           (multiple-value-bind (folder name) (by-id shows :show show)
-                            (let ((eps (mapcar (lambda (n) (+ n offset)) ns)))
-                              (values (format nil "~a/~a/Season ~2,'0d/~a S~2,'0dE~{~2,'0d~^-E~}"
-                                              *shows* folder season name season eps)
-                                      (list :episode (fold folder) season eps)))))))))
+                            (let ((eps (if parts
+                                           (list (+ from offset))
+                                           (mapcar (lambda (n) (+ n offset)) ns)))
+                                  (part (and parts (1+ (- (first ns) from)))))
+                              (values (format nil "~a/~a/Season ~2,'0d/~a S~2,'0dE~{~2,'0d~^-E~}~@[ - part~d~]"
+                                              *shows* folder season name season eps part)
+                                      (list :episode (fold folder) season eps part)))))))))
             (t (values nil "a rule that says neither film nor show"))))))
 
 (defun place (path guess shows films)

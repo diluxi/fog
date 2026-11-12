@@ -26,10 +26,10 @@
 		(arc "10. Koimonogatari" [ { season = 3; offset = 17; } ])
 		(arc "11. Tsukimonogatari" [ { season = 0; offset = 17; } ])
 		(arc "12. Koyomimonogatari" [ { season = 0; offset = 21; } ])
-		# tmdb makes the two halves of the first, hour-long episode one: the
-		# second half is left for linking by hand
+		# tmdb makes the two halves of the first, hour-long episode one: they
+		# are its two parts, which jellyfin plays as one episode
 		(arc "13. Owarimonogatari" [
-			{ to = 1; season = 4; }
+			{ to = 2; season = 4; parts = true; }
 			{ from = 3; season = 4; offset = -1; }
 		])
 		(arc "14. Owarimonogatari 2nd Season" [ { season = 0; offset = 34; } ])

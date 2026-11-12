@@ -392,7 +392,8 @@ it linked before. Returns what they linked to."
   (let* ((stem (let ((name (basename dest))) (subseq name 0 (position #\. name :from-end t))))
          (dir (dirname dest))
          dropped)
-    (dolist (name (entries dir) dropped)
+    ;; in a dry run, the folder may only be planned
+    (dolist (name (and (eq (kind dir) :directory) (entries dir)) dropped)
       (let ((path (join dir name)))
         (when (and (eq (kind path) :link)
                    (> (length name) (length stem))
@@ -443,6 +444,12 @@ of the two is. Returns :linked, and the copy it replaced if it did, or
                         (push (list target dest target) (run-seconds run))
                         :second)))))))
 
+(defmacro unless-failing ((run path) &body body)
+  "BODY, for one file: if it fails, the file is left alone, with the error
+for its reason, and the run goes on."
+  `(handler-case (progn ,@body)
+     (error (e) (note-unsure ,run ,path (format nil "odos failed: ~a" e)))))
+
 (defun torrent (path)
   "The torrent PATH came with, as far as the seed tree says: the folder at its
 top, or nothing for a file there on its own."
@@ -459,7 +466,8 @@ top, or nothing for a file there on its own."
     ;; videos first, so subtitles find where theirs went
     (loop for path in paths and g in guesses
           when (member (extension path) +videos+ :test #'string=)
-            do (unless (find "Sample" (fields g "other") :test #'equal)
+            do (unless-failing (run path)
+                (unless (find "Sample" (fields g "other") :test #'equal)
                  (multiple-value-bind (stem key) (place g shows films)
                    (if (null stem)
                        (note-unsure run path key)
@@ -475,10 +483,11 @@ top, or nothing for a file there on its own."
                              ;; its subtitles stay out with it
                              (:second
                               (setf (gethash (cons key (torrent path)) stems)
-                                    (list :second dest path))))))))))
+                                    (list :second dest path)))))))))))
     (loop for path in paths and g in guesses
           when (member (extension path) +subtitles+ :test #'string=)
-            do (multiple-value-bind (stem key) (place g shows films)
+            do (unless-failing (run path)
+                (multiple-value-bind (stem key) (place g shows films)
                  (let ((stem (and stem (gethash (cons key (torrent path)) stems)))
                        (language (field g "subtitle_language")))
                    (cond ((stringp stem)
@@ -487,7 +496,7 @@ top, or nothing for a file there on its own."
                                                 (extension path))))
                          ((consp stem)
                           (destructuring-bind (dest video) (rest stem)
-                            (push (list path dest video) (run-seconds run))))))))))
+                            (push (list path dest video) (run-seconds run)))))))))))
 
 ;;; jellyfin
 

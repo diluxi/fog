@@ -11,7 +11,7 @@
 
 (defpackage #:odos
   (:use #:cl)
-  (:local-nicknames (#:jzon #:com.inuoe.jzon))
+  (:local-nicknames (#:jzon #:com.inuoe.jzon) (#:ppcre #:cl-ppcre))
   (:export #:main))
 
 (in-package #:odos)
@@ -162,13 +162,19 @@ one as the second value."
 
 ;;; guessit
 
+(defun readable (name)
+  "NAME as guessit reads it best: a version after an episode (S01E01v2) makes
+it read the whole name as a film's title, so the version goes."
+  (ppcre:regex-replace-all "(?i)\\b(S\\d{1,3}(?:E\\d{1,4})*)v\\d{1,2}\\b" name "\\1"))
+
 (defun guess (paths)
   "What guessit makes of each path, relative to *video* so a torrent's
 folder names help, as hash tables in the same order."
   (when paths
     (let ((out (with-output-to-string (s)
                  (with-input-from-string (in (format nil "~{~a~%~}"
-                                                     (mapcar (lambda (p) (relative *video* p)) paths)))
+                                                     (mapcar (lambda (p) (readable (relative *video* p)))
+                                                             paths)))
                    (uiop:run-program '("guessit" "--json" "--input-file" "/dev/stdin")
                                      :input in :output s :error-output *error-output*)))))
       (let ((lines (remove "" (uiop:split-string out :separator '(#\Newline)) :test #'string=)))
@@ -189,6 +195,103 @@ folder names help, as hash tables in the same order."
           ((and (vectorp v) (not (stringp v))) (coerce v 'list))
           (t (list v)))))
 
+;;; jellyfin, asked and told through curl, whose config comes on stdin so
+;;; the key is on no command line
+
+(defvar *key* nil "Jellyfin's api key, or nil.")
+
+(defun quoted (s)
+  "S as a string in curl's config syntax."
+  (with-output-to-string (o)
+    (write-char #\" o)
+    (loop for c across s
+          do (when (member c '(#\" #\\)) (write-char #\\ o))
+             (write-char c o))
+    (write-char #\" o)))
+
+(defun jellyfin (path body)
+  "POSTs BODY, as json, to jellyfin's PATH. Its answer as a string, or nil if
+it didn't take it."
+  (with-input-from-string
+      (in (format nil "url = ~a~%header = ~a~%header = \"Content-Type: application/json\"~%data = ~a~%fail~%silent~%show-error~%"
+                  (quoted (format nil "~a~a" *jellyfin* path))
+                  (quoted (format nil "Authorization: MediaBrowser Token=\"~a\"" *key*))
+                  (quoted (jzon:stringify body))))
+    (multiple-value-bind (out err code)
+        (uiop:run-program '("curl" "--config" "-") :input in :output :string
+                                                   :error-output *error-output* :ignore-error-status t)
+      (declare (ignore err))
+      (and (zerop code) out))))
+
+(defun object (&rest pairs)
+  "A json object of PAIRS, name then value."
+  (let ((h (make-hash-table :test 'equal)))
+    (loop for (k v) on pairs by #'cddr do (setf (gethash k h) v))
+    h))
+
+;;; who a show or film is: what jellyfin's metadata (tmdb) calls it, asked
+;;; once per title and kept, so a show under its english and its japanese
+;;; name, or with and without a year, is one show, in a folder named by its
+;;; tmdb id, which jellyfin reads as well
+
+(defvar *ids* (make-hash-table :test 'equal)
+  "kind|title|year to (id name year), or :none when tmdb doesn't know it.")
+
+(defun ids-file () (join *state* "ids"))
+
+(defun read-ids ()
+  (when (eq (kind (ids-file)) :file)
+    (with-open-file (in (ids-file) :external-format :utf-8)
+      (loop for line = (read-line in nil)
+            while line
+            do (destructuring-bind (key id &optional name year)
+                   (uiop:split-string line :separator '(#\Tab))
+                 (setf (gethash key *ids*)
+                       (if (string= id "-") :none (list id name (number-in year)))))))))
+
+(defun write-ids ()
+  (write-lines (ids-file)
+               (loop for key being the hash-keys of *ids* using (hash-value v)
+                     collect (if (eq v :none)
+                                 (format nil "~a~c-" key #\Tab)
+                                 (destructuring-bind (id name year) v
+                                   (format nil "~a~c~a~c~a~c~@[~d~]" key #\Tab id #\Tab name #\Tab year))))))
+
+(defun look-up (kind title year)
+  "What jellyfin's metadata finds for TITLE: (id name year) of the first tmdb
+result, of YEAR if one is; :none for nothing; :unreachable if jellyfin can't
+be asked."
+  (let ((out (and *key*
+                  (jellyfin (format nil "/Items/RemoteSearch/~a" (if (eq kind :film) "Movie" "Series"))
+                            (object "SearchInfo" (if year
+                                                     (object "Name" title "Year" year)
+                                                     (object "Name" title)))))))
+    (if (null out)
+        :unreachable
+        (let* ((results (remove-if-not (lambda (r)
+                                         (let ((ids (gethash "ProviderIds" r)))
+                                           (and (hash-table-p ids) (stringp (gethash "Tmdb" ids)))))
+                                       (coerce (jzon:parse out) 'list)))
+               (best (or (and year (find year results :key (lambda (r) (gethash "ProductionYear" r))))
+                         (first results))))
+          (if best
+              (list (gethash "Tmdb" (gethash "ProviderIds" best))
+                    (gethash "Name" best)
+                    (let ((y (gethash "ProductionYear" best))) (and (integerp y) y)))
+              :none)))))
+
+(defun identify (kind title year)
+  "(id name year) for TITLE, :none, or :unreachable."
+  (let ((key (format nil "~(~a~)|~a|~@[~d~]" kind (fold title) year)))
+    (multiple-value-bind (known there) (gethash key *ids*)
+      (if there
+          known
+          (let ((found (if *key* (look-up kind title year) :none)))
+            ;; without a key, guessit's title, but nothing to remember
+            (unless (or (eq found :unreachable) (null *key*))
+              (setf (gethash key *ids*) found))
+            found)))))
+
 ;;; where things go
 
 (defun clean (title)
@@ -200,50 +303,71 @@ folder names help, as hash tables in the same order."
                                 do (write-char c o))))))
 
 (defun fold (name)
-  "A folder name as compared: in lower case, without a trailing (year)."
-  (let ((n (string-downcase name)))
-    (if (and (> (length n) 7) (char= (char n (- (length n) 1)) #\))
-             (string= " (" n :start2 (- (length n) 7) :end2 (- (length n) 5))
-             (every #'digit-char-p (subseq n (- (length n) 5) (- (length n) 1))))
-        (subseq n 0 (- (length n) 7))
-        n)))
+  "A folder name as compared: in lower case, without its tmdb id or (year)."
+  (string-trim " " (ppcre:regex-replace-all "\\s*(\\[tmdbid-\\d+\\]|\\(\\d{4}\\))\\s*$"
+                                            (ppcre:regex-replace-all "\\s*\\[tmdbid-\\d+\\]" (string-downcase name) "")
+                                            "")))
+
+(defun tmdb-of (name)
+  (nth-value 1 (ppcre:scan-to-strings "\\[tmdbid-(\\d+)\\]" name)))
 
 (defun folders (root)
-  "ROOT's folders by their folded names, so a show keeps the folder it has,
-with or without a year."
+  "ROOT's folders by their tmdb ids and by their folded names."
   (let ((index (make-hash-table :test 'equal)))
     (when (eq (kind root) :directory)
       (dolist (name (entries root))
         (when (eq (kind (join root name)) :directory)
+          (let ((id (tmdb-of name)))
+            (when id (setf (gethash (format nil "id:~a" (aref id 0)) index) name)))
           (setf (gethash (fold name) index) name))))
     index))
 
-(defun folder (index title year)
-  "The folder a show or film has, or a new one, named with its year if
-guessit found one."
-  (or (gethash (fold title) index)
-      (setf (gethash (fold title) index)
-            (if year (format nil "~a (~d)" title year) title))))
+(defun folder (index kind title year)
+  "The folder a show or film has, or a new one: named by tmdb if it knows it,
+else by guessit's title and year. Its title is the second value. :defer when
+jellyfin can't be asked."
+  (let ((id (identify kind title year)))
+    (cond ((eq id :unreachable) :defer)
+          ((consp id)
+           (destructuring-bind (tmdb name tmdb-year) id
+             (let ((name (clean name)))
+               (values (or (gethash (format nil "id:~a" tmdb) index)
+                           (let ((new (format nil "~a~@[ (~d)~] [tmdbid-~a]" name tmdb-year tmdb)))
+                             (setf (gethash (format nil "id:~a" tmdb) index) new
+                                   (gethash (fold new) index) new)))
+                       name))))
+          (t (values (or (gethash (fold title) index)
+                         (setf (gethash (fold title) index)
+                               (if year (format nil "~a (~d)" title year) title)))
+                     title)))))
 
 (defun place (guess shows films)
   "Where the video GUESS is of goes, without its extension, and its key for
-subtitles; or nil and why not. SHOWS and FILMS index their roots' folders."
+subtitles; or nil and why not, or nil and :defer when jellyfin can't say who
+it is yet. SHOWS and FILMS index their roots' folders."
   (let ((title (let ((v (field guess "title"))) (and (stringp v) (clean v))))
         (year (let ((v (field guess "year"))) (and (integerp v) v)))
         (season (let ((v (field guess "season"))) (and (integerp v) v)))
         (episodes (remove-if-not #'integerp (fields guess "episode"))))
     (cond ((or (null title) (string= title "")) (values nil "no title"))
-          ((string= (field guess "type") "episode")
+          ;; an "episode" with neither season nor number is a film whose name
+          ;; has a word guessit takes for an episode's (Blade.Runner.Final.Cut)
+          ((and (string= (field guess "type") "episode")
+                (or season episodes))
            (cond ((null episodes) (values nil "an episode without its number"))
                  ((null season) (values nil "an episode without a season (absolute numbering?)"))
-                 (t (let ((show (folder shows title year)))
-                      (values (format nil "~a/~a/Season ~2,'0d/~a S~2,'0dE~{~2,'0d~^-E~}"
-                                      *shows* show season title season episodes)
-                              (list :episode (fold show) season episodes))))))
-          ((string= (field guess "type") "movie")
-           (let ((film (folder films title year)))
-             (values (format nil "~a/~a/~a" *films* film film)
-                     (list :film (fold film)))))
+                 (t (multiple-value-bind (show name) (folder shows :show title year)
+                      (if (eq show :defer)
+                          (values nil :defer)
+                          (values (format nil "~a/~a/Season ~2,'0d/~a S~2,'0dE~{~2,'0d~^-E~}"
+                                          *shows* show season name season episodes)
+                                  (list :episode (fold show) season episodes)))))))
+          ((member (field guess "type") '("movie" "episode") :test #'equal)
+           (let ((film (folder films :film title year)))
+             (if (eq film :defer)
+                 (values nil :defer)
+                 (values (format nil "~a/~a/~a" *films* film film)
+                         (list :film (fold film))))))
           (t (values nil (format nil "neither episode nor film: ~a" (field guess "type")))))))
 
 ;;; which of two copies is better
@@ -358,7 +482,7 @@ shorter; nil if ffprobe can't say."
 ;;; the run
 
 (defstruct run
-  (linked 0) (upgraded 0) (unsure '()) (changed '()) (seconds '())
+  (linked 0) (upgraded 0) (deferred 0) (unsure '()) (changed '()) (seconds '())
   ;; in a dry run, where links would be, as nothing is made
   (planned (make-hash-table :test 'equal)))
 
@@ -428,6 +552,12 @@ of the two is. Returns :linked, and the copy it replaced if it did, or
            :linked)
           ((equal there target) :linked)
           ((eq there :taken) (note-unsure run target (format nil "~a is taken" dest)) nil)
+          ;; two files of one torrent are no copies of each other: one of
+          ;; them was read wrong
+          ((and (under *video* there) (string/= (torrent target) "")
+                (equal (torrent there) (torrent target)))
+           (note-unsure run target (format nil "~a has another file of this torrent (read wrong?)" dest))
+           nil)
           (t (multiple-value-bind (win why) (better target there)
                (cond (win
                       ;; the copy that was linked is a second now, with its
@@ -469,8 +599,10 @@ top, or nothing for a file there on its own."
             do (unless-failing (run path)
                 (unless (find "Sample" (fields g "other") :test #'equal)
                  (multiple-value-bind (stem key) (place g shows films)
-                   (if (null stem)
-                       (note-unsure run path key)
+                   (cond
+                     ((eq key :defer) (incf (run-deferred run)))
+                     ((null stem) (note-unsure run path key))
+                     (t
                        (let ((dest (format nil "~a.~a" stem (extension path))))
                          (multiple-value-bind (result replaced) (put-video run path dest)
                            (case result
@@ -483,7 +615,7 @@ top, or nothing for a file there on its own."
                              ;; its subtitles stay out with it
                              (:second
                               (setf (gethash (cons key (torrent path)) stems)
-                                    (list :second dest path)))))))))))
+                                    (list :second dest path))))))))))))
     (loop for path in paths and g in guesses
           when (member (extension path) +subtitles+ :test #'string=)
             do (unless-failing (run path)
@@ -498,38 +630,14 @@ top, or nothing for a file there on its own."
                           (destructuring-bind (dest video) (rest stem)
                             (push (list path dest video) (run-seconds run)))))))))))
 
-;;; jellyfin
+;;; telling jellyfin
 
-(defun quoted (s)
-  "S as a string in curl's config syntax."
-  (with-output-to-string (o)
-    (write-char #\" o)
-    (loop for c across s
-          do (when (member c '(#\" #\\)) (write-char #\\ o))
-             (write-char c o))
-    (write-char #\" o)))
-
-(defun tell (updates key)
-  "Tells jellyfin about UPDATES, (type . path) each, through curl, whose
-config comes on stdin so the key is on no command line. True if it took
-them."
-  (let ((body (jzon:stringify
-               (let ((h (make-hash-table :test 'equal)))
-                 (setf (gethash "Updates" h)
-                       (coerce (loop for (type . path) in updates
-                                     collect (let ((u (make-hash-table :test 'equal)))
-                                               (setf (gethash "Path" u) path
-                                                     (gethash "UpdateType" u) type)
-                                               u))
-                               'vector))
-                 h))))
-    (with-input-from-string
-        (in (format nil "url = ~a~%header = ~a~%header = \"Content-Type: application/json\"~%data = ~a~%fail~%silent~%show-error~%"
-                    (quoted (format nil "~a/Library/Media/Updated" *jellyfin*))
-                    (quoted (format nil "Authorization: MediaBrowser Token=\"~a\"" key))
-                    (quoted body)))
-      (zerop (nth-value 2 (uiop:run-program '("curl" "--config" "-") :input in :output nil
-                                            :error-output *error-output* :ignore-error-status t))))))
+(defun tell (updates)
+  "Tells jellyfin about UPDATES, (type . path) each. True if it took them."
+  (jellyfin "/Library/Media/Updated"
+            (object "Updates" (coerce (loop for (type . path) in updates
+                                            collect (object "Path" path "UpdateType" type))
+                                      'vector))))
 
 (defun pending-file () (join *state* "pending"))
 
@@ -591,12 +699,10 @@ False if jellyfin couldn't be reached, and it's kept for next time."
                    (append (read-pending)
                            (mapcar (lambda (d) (cons "Created" d)) (run-changed run))
                            (mapcar (lambda (d) (cons "Deleted" d)) gone))
-                   :test #'equal))
-         (key (and *key-file* (probe-file *key-file*)
-                   (string-trim '(#\Space #\Newline #\Tab) (uiop:read-file-string *key-file*)))))
+                   :test #'equal)))
     (cond ((or (null updates) *dry-run*) t)
-          ((null key) (say "no api key, so jellyfin finds these on its next scan") t)
-          ((tell updates key)
+          ((null *key*) (say "no api key, so jellyfin finds these on its next scan") t)
+          ((tell updates)
            (say "jellyfin scans ~d folder~:p" (length updates))
            (write-pending '())
            t)
@@ -611,8 +717,13 @@ False if jellyfin couldn't be reached, and it's kept for next time."
         (sb-posix:syscall-error () nil)))))
 
 (defun odos ()
-  "One run. True unless jellyfin is owed a report it couldn't take."
+  "One run. True unless jellyfin is owed a report it couldn't take, or
+couldn't say who something is."
   (empty-spool)
+  (setf *key* (and *key-file* (eq (kind *key-file*) :file)
+                   (string-trim '(#\Space #\Newline #\Tab) (uiop:read-file-string *key-file*))))
+  (unless *key* (say "no api key: shows and films are named by guessit alone"))
+  (read-ids)
   (unless *dry-run*
     (dolist (root (list *shows* *films*))
       (ensure-directories root *links*)))
@@ -623,6 +734,7 @@ False if jellyfin couldn't be reached, and it's kept for next time."
                              (candidates linked))))
       (when paths (link-all run paths))
       (unless *dry-run*
+        (write-ids)
         ;; the latest word on each copy
         (write-seconds (settled (remove-duplicates (append seconds (reverse (run-seconds run)))
                                                    :key #'first :test #'equal :from-end nil)))
@@ -636,7 +748,9 @@ False if jellyfin couldn't be reached, and it's kept for next time."
            (length (remove-duplicates (run-seconds run) :key #'first :test #'equal))
            (length (run-unsure run))
            (and (run-unsure run) (not *dry-run*) (join *state* "unsure")))
-      (report run gone))))
+      (when (plusp (run-deferred run))
+        (say "~d file~:p wait for jellyfin to say what they are" (run-deferred run)))
+      (and (report run gone) (zerop (run-deferred run))))))
 
 (defun usage ()
   (format *error-output* "usage: odos [--dry-run] [--video DIR] [--links DIR] [--shows DIR] [--films DIR]

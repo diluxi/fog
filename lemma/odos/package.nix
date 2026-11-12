@@ -1,5 +1,5 @@
 { lib, stdenvNoCC, sbcl, makeWrapper, python3Packages, curl, ffmpeg-headless }: let
-	lisp = sbcl.withPackages (ps: [ ps.com_dot_inuoe_dot_jzon ]);
+	lisp = sbcl.withPackages (ps: [ ps.com_dot_inuoe_dot_jzon ps.cl-ppcre ]);
 in stdenvNoCC.mkDerivation {
 	pname = "odos";
 	version = "0";

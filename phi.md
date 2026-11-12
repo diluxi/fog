@@ -161,7 +161,13 @@ switched to, so a rewrite stops deploys until its state is fixed by hand.
   `/srv/kino/TV/Show (Year)/Season NN/Show SxxEyy.ext` and
   `/srv/kino/Films/Title (Year)/Title (Year).ext`, subtitles beside their
   video, by what guessit (run as a CLI, one call per run) makes of the
-  names. Only files nothing under `/srv/kino` links to are read, so hand-made
+  names. Shows and films are identified through Jellyfin's remote search
+  (TMDb) and their folders named `Name (Year) [tmdbid-N]`, so one show under
+  two titles (Sousou no Frieren, Frieren: Beyond Journey's End) is one
+  folder; lookups are kept in `/var/lib/odos/ids`, and while Jellyfin is
+  away, unidentified files wait for the next run. `S01E01v2` loses its `v2`
+  before guessit reads it, since guessit would read a film otherwise.
+  Only files nothing under `/srv/kino` links to are read, so hand-made
   links stand. Links whose file is gone are removed. What it can't place
   surely (no season, a place taken by a file) is listed in
   `/var/lib/odos/unsure`. Where two copies of the same episode or film are

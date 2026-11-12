@@ -1,5 +1,5 @@
 (asdf:defsystem "odos"
   :description "links finished torrents into jellyfin's libraries, by what guessit makes of their names"
   :license "MIT"
-  :depends-on ("sb-posix" "com.inuoe.jzon")
+  :depends-on ("sb-posix" "com.inuoe.jzon" "cl-ppcre")
   :components ((:file "odos")))

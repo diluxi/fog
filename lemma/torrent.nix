@@ -338,6 +338,69 @@ in {
 		serviceConfig = inside;
 	};
 
+	# transmission as its download client, for what's grabbed from its own
+	# searches. a category is a directory under /srv/seed, by what the
+	# indexer says a release is (newznab's numbers, with their subcategories);
+	# anything else goes to other/
+	systemd.services.prowlarr-clients = let
+		kinds = [
+			{ clientCategory = "video"; categories = [ 2000 5000 ]; } # films, tv
+			{ clientCategory = "audio"; categories = [ 3000 ]; }
+			{ clientCategory = "books"; categories = [ 7000 ]; }
+		];
+		fields = {
+			host = "127.0.0.1";
+			port = rpc;
+			urlBase = "/transmission/";
+			category = "other";
+		};
+	in {
+		description = "prowlarr's download client, transmission";
+		wantedBy = [ "multi-user.target" ];
+		requires = [ "prowlarr-proxy.socket" ];
+		# saving it tests it, so transmission must answer
+		wants = [ "transmission.service" ];
+		after = [ "prowlarr-proxy.socket" "transmission.service" ];
+		partOf = [ "prowlarr.service" ];
+		path = with pkgs; [ curl jq ];
+		serviceConfig = {
+			Type = "oneshot";
+			RemainAfterExit = true;
+			DynamicUser = true;
+			RuntimeDirectory = "prowlarr-clients";
+			RuntimeDirectoryMode = "0700";
+			LoadCredential = [ "api:${config.crypt.generated.prowlarr-api.path}" ];
+			Restart = "on-failure";
+			RestartSec = "30s";
+		};
+		script = ''
+			api=http://127.0.0.1:${toString prowlarrProxy}/api/v1
+			# the key through a file, not on a command line
+			rc=$RUNTIME_DIRECTORY/curlrc
+			printf 'header = "X-Api-Key: %s"\n' \
+				"$(sed -n 's/^PROWLARR__AUTH__APIKEY=//p' "$CREDENTIALS_DIRECTORY/api")" >"$rc"
+			get() { curl -sSf -K "$rc" "$api/$1"; }
+			send() { curl -sSf -K "$rc" -X "$1" -H 'content-type: application/json' --data-binary @- "$api/$2" >/dev/null; }
+
+			for i in $(seq 120); do get system/status >/dev/null 2>&1 && break; sleep 1; done
+
+			# prowlarr's own schema, with what's declared here filled in
+			want=$(get downloadclient/schema | jq -c \
+				--argjson fields ${lib.escapeShellArg (builtins.toJSON fields)} \
+				--argjson kinds ${lib.escapeShellArg (builtins.toJSON kinds)} '
+				.[] | select(.implementation == "Transmission")
+				| .name = "Transmission" | .enable = true | .categories = $kinds
+				| .fields |= map((.name // "") as $n
+					| if $fields | has($n) then .value = $fields[$n] else . end)')
+			id=$(get downloadclient | jq '.[] | select(.name == "Transmission") | .id')
+			if [ -n "$id" ]; then
+				jq --argjson id "$id" '.id = $id' <<<"$want" | send PUT "downloadclient/$id"
+			else
+				send POST downloadclient <<<"$want"
+			fi
+		'';
+	};
+
 	# its web ui and api, carried out of the namespace like transmission's
 	systemd.sockets.prowlarr-proxy = {
 		wantedBy = [ "sockets.target" ];

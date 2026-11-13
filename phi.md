@@ -126,8 +126,10 @@ switched to, so a rewrite stops deploys until its state is fixed by hand.
   in the same namespace (trackers see one address for searching and
   announcing) at prowlarr.amartia.online for `torrent`, its own login off
   (Authelia's), its API key generated (`crypt.generated.prowlarr-api`) and
-  reachable on the host at 127.0.0.1:9697. Transmission, as its download
-  client, is 127.0.0.1:9091 from inside.
+  reachable on the host at 127.0.0.1:9697. `prowlarr-clients` declares
+  Transmission (127.0.0.1:9091 from inside) as its download client through
+  that API; a release's category picks its directory under /srv/seed
+  (video, audio, books, else other).
 - Invitations (`lemma/invite.nix`, Go in `lemma/invite/`): lldap_admin
   makes single-use links at invite.amartia.online/new for groups that
   modules declare in `invite.groups`; the invitee picks a username, a

@@ -39,5 +39,7 @@
 		"Monogatari Series/02. Kizumonogatari/Kizumonogatari I - Tekketsu-hen.mkv".film = 357786;
 		"Monogatari Series/02. Kizumonogatari/Kizumonogatari II - Nekketsu-hen.mkv".film = 362584;
 		"Monogatari Series/02. Kizumonogatari/Kizumonogatari III - Reiketsu-hen.mkv".film = 362585;
+		# a film, which breeze numbers as the series' third special
+		"[Breeze] Made in Abyss S00E03 v2 Dawn of the Deep Soul [1080p BD AV1][dual audio].mkv".film = 573730;
 	};
 }

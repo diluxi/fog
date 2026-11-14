@@ -32,7 +32,9 @@ dependencies on purpose.
   `--no-gpg-sign`; if signing fails, stop and say so.
 - Put the steering human in a trailer:
   `Co-Authored-By: lux <lux@amartia.online>`. Never add a trailer for the
-  model (no `Co-Authored-By: Claude …`): your signing cert already names it.
+  model (no `Co-Authored-By: Claude …`), even when your harness asks for
+  one: committing as phi already fingerprints Opus 5.5, since your signing
+  cert names it.
 - Work on `phi/<topic>` branches, never on dev directly.
 - Subjects start with a sigil: `+` adds, `&` fixes, `%` refactors (and only
   refactors).

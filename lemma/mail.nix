@@ -16,7 +16,10 @@
 	accounts = {
 		lux = {
 			address = "lux@amartia.online";
-			aliases = map (local: "${local}@amartia.online") [ "dilux" "rea" "gaia" ];
+			aliases = map (local: "${local}@amartia.online") [ "dilux" "rea" "gaia" ]
+				# the agents' addresses (phi.md), lux's until they have a mailbox
+				# of their own; lux verifies them where they're used, like github
+				++ map (local: "${local}@amartia.online") [ "phi" "syl" "rex" ];
 		};
 		# the administrative mailbox, kept apart from anyone's own: domain
 		# reports (dmarc, tls-rpt), abuse complaints and the system's mail

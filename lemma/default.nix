@@ -68,7 +68,11 @@
 
 	services.openssh = {
 		enable = true;
-		settings.PasswordAuthentication = false;
+		# keys only: no password, and no pam asking for one either
+		settings = {
+			PasswordAuthentication = false;
+			KbdInteractiveAuthentication = false;
+		};
 	};
 
 	system.stateVersion = "25.05"; # rtfm

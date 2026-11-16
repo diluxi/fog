@@ -6,5 +6,9 @@
   "nixpkgs": {
     "url": "https://github.com/nixos/nixpkgs/archive/1d060086d60cb76a40cf37109f979d88a5bd6396.tar.gz",
     "sha256": "0br4sv8vf37pbasihv20kq62cmpxl925x4q40i5nghfvmg07a2ld"
+  },
+  "ike": {
+    "url": "https://github.com/diluxi/ike/archive/b1c6616074fc1f4b5858318e7a6292b871fc3ca9.tar.gz",
+    "sha256": "04nraw8bkxnzvksixv9b2msyikjwbhjpq69w3kf9pdarb3nnhsdf"
   }
 }

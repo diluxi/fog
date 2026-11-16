@@ -1,0 +1,3 @@
+{ ... }: {
+	services.ike.enable = true;
+}

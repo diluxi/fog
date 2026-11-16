@@ -6,6 +6,7 @@ let
 in import (pins.nixpkgs + "/nixos/lib/eval-config.nix") {
 	modules = [
 		"${pins.disko}/module.nix"
+		"${pins.ike}/nix/module.nix"
 		./crypt.nix
 		./users
 		./lemma

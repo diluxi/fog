@@ -116,9 +116,10 @@ switched to, so a rewrite stops deploys until its state is fixed by hand.
   `xmpp`: state in sqlite, conference/pubsub/upload components, certificates
   from caddy, and FAST tokens, since LDAP auth only allows PLAIN and
   Conversations requires channel binding.
-- transmission (`lemma/torrent.nix`) on torrent.amartia.online for the lldap
-  group `torrent`, inside a network namespace whose only way out is
-  AirVPN's WireGuard (Mullvad until 2026-11, which forwards no ports). The
+- transmission (`lemma/torrent.nix`) at seed.amartia.online (`/` goes to
+  `/transmission/web/`) for the lldap group `torrent`, inside a network
+  namespace whose only way out is AirVPN's WireGuard (Mullvad until
+  2026-11, which forwards no ports). The
   secrets are the device's wg-quick config from AirVPN's generator and the
   account's forwarded port, which becomes Transmission's peer port. Every
   AirVPN server shares one key, so lemma0 picks a server's endpoint at
@@ -126,10 +127,11 @@ switched to, so a rewrite stops deploys until its state is fixed by hand.
   `/var/lib/airvpn/prefer` (names, country codes or cities).
   `systemctl start airvpn-switch` moves to another server. Prowlarr runs
   in the same namespace (trackers see one address for searching and
-  announcing) at prowlarr.amartia.online for `torrent`, its own login off
-  (Authelia's), its API key generated (`crypt.generated.prowlarr-api`) and
-  reachable on the host at 127.0.0.1:9697 and over the VPN (torrent and
-  admin roles) at 10.10.2.1:9697, where the WireGuard key is the login. `prowlarr-clients` declares
+  announcing) at seed.amartia.online/prowlarr for `torrent` (its URL base
+  is `/prowlarr` everywhere), its own login off (Authelia's), its API key
+  generated (`crypt.generated.prowlarr-api`) and reachable on the host at
+  127.0.0.1:9697 and over the VPN (torrent and admin roles) at
+  10.10.2.1:9697, where the WireGuard key is the login. `prowlarr-clients` declares
   Transmission (127.0.0.1:9091 from inside) as its download client through
   that API; a release's category picks its directory under /srv/seed
   (video, audio, books, else other).
@@ -165,8 +167,8 @@ switched to, so a rewrite stops deploys until its state is fixed by hand.
   interface (`trusted`, `tcp`). `wg-portal-roles` declares the interfaces
   through wg-portal's API, with keys from `crypt.generated.vpn-fog-<name>`.
   Roles: `admin` (lldap_admin, everything, at 10.10.1.1), `torrent` (the
-  RPC and web UI on 9092, prowlarr on 9697) and `ssh` (port 22, for the lldap group
-  `ssh`). `fog` and `dn42` stay networkd's.
+  RPC and web UI on 9092, prowlarr on 9697) and `ssh` (port 22, for the
+  lldap group `ssh`). `fog` and `dn42` stay networkd's.
 - sshd is only reachable over the VPN (since 2026-11-16), keys only, no
   keyboard-interactive. `fog`'s default host is 10.10.1.1, the admin role's
   address; `FOG_HOST` overrides it. If the VPN breaks, log in on Hetzner's

@@ -1,5 +1,7 @@
 { config, lib, pkgs, ... }: let
-	torrent = "torrent.amartia.online";
+	# transmission and prowlarr, one host: transmission at its own
+	# /transmission/, prowlarr under /prowlarr
+	seed = "seed.amartia.online";
 	netns = "/run/netns/airvpn";
 	rpc = 9091; # inside the namespace
 	proxy = 9092; # outside it, for caddy (authelia has 9091) and the vpn
@@ -151,7 +153,7 @@
 	# prowlarr, the indexers' search, inside too: trackers see one address
 	# for searching and announcing, and it hands torrents to transmission
 	# at 127.0.0.1:${toString rpc} there
-	prowlarr = "prowlarr.amartia.online";
+	prowlarrBase = "/prowlarr";
 	prowlarrPort = 9696; # inside the namespace
 	prowlarrProxy = 9697; # outside it, for caddy, the vpn and whatever searches through it
 
@@ -251,7 +253,7 @@ in {
 			rpc-whitelist-enabled = true;
 			rpc-whitelist = "127.0.0.1";
 			rpc-host-whitelist-enabled = true;
-			rpc-host-whitelist = torrent;
+			rpc-host-whitelist = seed;
 			# the peer port is airvpn's forwarded one (credentialsFile), so
 			# peers reach us through it; upnp is for home routers
 			port-forwarding-enabled = false;
@@ -305,25 +307,31 @@ in {
 	};
 	invite.groups.torrent = {
 		label = "Torrents";
-		info = "https://${torrent}, after a second factor you set up on first login; or over the vpn, from a device you add at https://vpn.amartia.online";
+		info = "https://${seed}, after a second factor you set up on first login; or over the vpn, from a device you add at https://vpn.amartia.online";
 	};
 	services.authelia.instances.main.settings.access_control.rules = [
-		{ domain = torrent; subject = [ "group:torrent" ]; policy = "two_factor"; }
-		{ domain = prowlarr; subject = [ "group:torrent" ]; policy = "two_factor"; }
+		{ domain = seed; subject = [ "group:torrent" ]; policy = "two_factor"; }
 	];
 
-	services.caddy.virtualHosts.${torrent}.extraConfig = ''
+	services.caddy.virtualHosts.${seed}.extraConfig = ''
 		forward_auth 127.0.0.1:9091 {
 			uri /api/authz/forward-auth
 			copy_headers Remote-User Remote-Groups Remote-Email Remote-Name
 		}
+		redir / /transmission/web/
+		@prowlarr path ${prowlarrBase} ${prowlarrBase}/*
+		reverse_proxy @prowlarr 127.0.0.1:${toString prowlarrProxy}
 		reverse_proxy 127.0.0.1:${toString proxy}
 	'';
 
 	services.prowlarr = {
 		enable = true;
 		settings = {
-			server = { bindaddress = "127.0.0.1"; port = prowlarrPort; };
+			server = {
+				bindaddress = "127.0.0.1";
+				port = prowlarrPort;
+				urlbase = prowlarrBase;
+			};
 			# authelia stands in front, as for transmission
 			auth = { method = "External"; required = "DisabledForLocalAddresses"; };
 		};
@@ -375,7 +383,7 @@ in {
 			RestartSec = "30s";
 		};
 		script = ''
-			api=http://127.0.0.1:${toString prowlarrProxy}/api/v1
+			api=http://127.0.0.1:${toString prowlarrProxy}${prowlarrBase}/api/v1
 			# the key through a file, not on a command line
 			rc=$RUNTIME_DIRECTORY/curlrc
 			printf 'header = "X-Api-Key: %s"\n' \
@@ -424,12 +432,4 @@ in {
 			DynamicUser = true;
 		};
 	};
-
-	services.caddy.virtualHosts.${prowlarr}.extraConfig = ''
-		forward_auth 127.0.0.1:9091 {
-			uri /api/authz/forward-auth
-			copy_headers Remote-User Remote-Groups Remote-Email Remote-Name
-		}
-		reverse_proxy 127.0.0.1:${toString prowlarrProxy}
-	'';
 }

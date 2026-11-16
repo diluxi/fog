@@ -131,7 +131,9 @@ switched to, so a rewrite stops deploys until its state is fixed by hand.
   is `/prowlarr` everywhere), its own login off (Authelia's), its API key
   generated (`crypt.generated.prowlarr-api`) and reachable on the host at
   127.0.0.1:9697 and over the VPN (torrent and admin roles) at
-  10.10.2.1:9697, where the WireGuard key is the login. `prowlarr-clients` declares
+  10.10.2.1:9697, where the WireGuard key is the login. Caddy answers
+  polling without an Authelia cookie (the RPC, prowlarr's API) with a 401
+  itself, so Authelia doesn't log each one. `prowlarr-clients` declares
   Transmission (127.0.0.1:9091 from inside) as its download client through
   that API; a release's category picks its directory under /srv/seed
   (video, audio, books, else other).

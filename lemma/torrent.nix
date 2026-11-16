@@ -313,15 +313,27 @@ in {
 		{ domain = seed; subject = [ "group:torrent" ]; policy = "two_factor"; }
 	];
 
+	# polling without any authelia session (an app pointed here, a tab
+	# from before a login) gets a 401 from caddy, without asking authelia,
+	# which would log every one. pages still go to authelia, for its login
 	services.caddy.virtualHosts.${seed}.extraConfig = ''
-		forward_auth 127.0.0.1:9091 {
-			uri /api/authz/forward-auth
-			copy_headers Remote-User Remote-Groups Remote-Email Remote-Name
+		@anonymous {
+			path /transmission/rpc ${prowlarrBase}/api/* ${prowlarrBase}/signalr/*
+			not header Cookie *authelia_session=*
 		}
-		redir / /transmission/web/
-		@prowlarr path ${prowlarrBase} ${prowlarrBase}/*
-		reverse_proxy @prowlarr 127.0.0.1:${toString prowlarrProxy}
-		reverse_proxy 127.0.0.1:${toString proxy}
+		handle @anonymous {
+			respond 401
+		}
+		handle {
+			forward_auth 127.0.0.1:9091 {
+				uri /api/authz/forward-auth
+				copy_headers Remote-User Remote-Groups Remote-Email Remote-Name
+			}
+			redir / /transmission/web/
+			@prowlarr path ${prowlarrBase} ${prowlarrBase}/*
+			reverse_proxy @prowlarr 127.0.0.1:${toString prowlarrProxy}
+			reverse_proxy 127.0.0.1:${toString proxy}
+		}
 	'';
 
 	services.prowlarr = {

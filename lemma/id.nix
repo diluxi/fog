@@ -1,4 +1,4 @@
-{ config, ... }: let
+{ config, pkgs, ... }: let
 	domain = "amartia.online";
 	baseDN = "dc=amartia,dc=online";
 	auth = "auth.${domain}";
@@ -121,6 +121,7 @@ in {
 				inherit domain;
 				authelia_url = "https://${auth}";
 			}];
+			session.redis.host = config.services.redis.servers.authelia.unixSocket;
 			storage.local.path = "/var/lib/authelia-main/db.sqlite3";
 			# password resets and one-time codes, from fog (lemma/mail.nix)
 			# through stalwart's submission, over loopback but checked
@@ -140,9 +141,17 @@ in {
 			totp.issuer = domain;
 		};
 	};
+	# sessions in valkey, redis' bsd fork, so that restarting authelia,
+	# which most deploys do, logs nobody out. on a unix socket only, and
+	# snapshotted on shutdown, so valkey's own restarts keep them too
+	services.redis.package = pkgs.valkey;
+	services.redis.servers.authelia.enable = true;
+
 	systemd.services.authelia-main = {
 		wants = [ "lldap-accounts.service" ];
-		after = [ "lldap-accounts.service" ];
+		requires = [ "redis-authelia.service" ];
+		after = [ "lldap-accounts.service" "redis-authelia.service" ];
+		serviceConfig.SupplementaryGroups = [ config.services.redis.servers.authelia.group ];
 		serviceConfig.LoadCredential = [
 			"ldap-password:${config.lldap.serviceAccounts.authelia.passwordFile}"
 			"smtp-password:${config.lldap.serviceAccounts.fog.passwordFile}"

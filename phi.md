@@ -96,6 +96,8 @@ switched to, so a rewrite stops deploys until its state is fixed by hand.
   declarative break-glass account. Services bind as their own accounts,
   declared with `lldap.serviceAccounts` (`lemma/lldap-accounts.nix`), which
   creates them, adds their groups and sets generated passwords.
+  Authelia's sessions live in Valkey (`redis-authelia`, a unix socket
+  only), so restarting Authelia logs nobody out.
 - Stalwart (`lemma/mail.nix`) on mx.amartia.online for amartia.online and
   cpli.dev, with autoconfig. Accounts come from LLDAP, aliases from the table
   in `mail.nix`. SPF, DKIM, DMARC and rDNS pass.

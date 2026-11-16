@@ -163,8 +163,13 @@ switched to, so a rewrite stops deploys until its state is fixed by hand.
   sync, which logs nobody in); what the peers reach is the firewall by
   interface (`trusted`, `tcp`). `wg-portal-roles` declares the interfaces
   through wg-portal's API, with keys from `crypt.generated.vpn-fog-<name>`.
-  Roles: `admin` (lldap_admin, everything) and `torrent` (the RPC on 9092,
-  for Tremotesf). `fog` and `dn42` stay networkd's.
+  Roles: `admin` (lldap_admin, everything, at 10.10.1.1), `torrent` (the
+  RPC on 9092, for Tremotesf) and `ssh` (port 22, for the lldap group
+  `ssh`). `fog` and `dn42` stay networkd's.
+- sshd is only reachable over the VPN (since 2026-11-16), keys only, no
+  keyboard-interactive. `fog`'s default host is 10.10.1.1, the admin role's
+  address; `FOG_HOST` overrides it. If the VPN breaks, log in on Hetzner's
+  console as cpli, the one account with a password.
 - odos (`lemma/odos.nix`, Common Lisp in `lemma/odos/`), "way" in Greek:
   links what's under `/srv/seed/video` into Jellyfin's two libraries,
   `/srv/kino/TV/Show (Year)/Season NN/Show SxxEyy.ext` and
@@ -232,7 +237,6 @@ switched to, so a rewrite stops deploys until its state is fixed by hand.
 - fog WireGuard: lemma0's `fc00:0010::10` collides with peer yui's
   AllowedIPs, and the `thm//` peer at `10.0.0.1` is unidentified. lemma0's
   public key is `fog++kDxd3oYo4t280RM1HmxpaU/T1ibRKD5hOEJ8DE=`.
-- sshd stays public until fog WireGuard works end to end; then bind it to fog.
 - Jellyfin migrates its database one way on nixpkgs bumps; back up first.
 
 ### Gotchas

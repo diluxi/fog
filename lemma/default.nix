@@ -66,13 +66,25 @@
 		lux.extraGroups = [ "wheel" ];
 	};
 
+	# keys only, and only over the vpn: the admin role reaches everything,
+	# the ssh role port 22 and nothing else. if the vpn breaks, log in as
+	# cpli (the one password) on hetzner's console
 	services.openssh = {
 		enable = true;
-		# keys only: no password, and no pam asking for one either
+		openFirewall = false;
 		settings = {
 			PasswordAuthentication = false;
 			KbdInteractiveAuthentication = false;
 		};
+	};
+	# who may: members of `ssh`, added in lldap's ui, with an account here
+	# (users/keys.json)
+	lldap.groups = [ "ssh" ];
+	vpn.roles.ssh = {
+		n = 3;
+		group = "ssh";
+		label = "ssh";
+		tcp = [ 22 ];
 	};
 
 	system.stateVersion = "25.05"; # rtfm

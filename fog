@@ -1,6 +1,6 @@
 #!/bin/sh
 set -eu
-HOST=${FOG_HOST:-cpli.dev}
+HOST=${FOG_HOST:-10.10.1.1} # lemma0 over the vpn (admin role); sshd is nowhere else
 DIR=$(dirname "$0")
 SRC=.cache/fog # on $HOST, relative to home
 ATTR=config.system.build.toplevel

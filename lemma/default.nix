@@ -11,6 +11,7 @@
 		./box.nix
 		./xmpp.nix
 		./irc.nix
+		./ike.nix
 		./torrent.nix
 		./phi.nix
 		./deploy.nix

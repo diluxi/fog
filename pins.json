@@ -8,7 +8,7 @@
     "sha256": "0br4sv8vf37pbasihv20kq62cmpxl925x4q40i5nghfvmg07a2ld"
   },
   "ike": {
-    "url": "https://github.com/diluxi/ike/archive/a8fa8e2ddc278e16b8bd77144ad18b248e760e0e.tar.gz",
-    "sha256": "144nzn7vb8dcbjsyvkhys5119rgg1cwpy7r0df04v3r06283kgpc"
+    "url": "https://github.com/diluxi/ike/archive/31455b9047af2a5b198e3ea052a5102fc6dba0e5.tar.gz",
+    "sha256": "09rx125yvfqa3kcwd5knfm19yj99bjk5zdprhg72gz2l2kaxnsz3"
   }
 }

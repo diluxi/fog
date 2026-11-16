@@ -3,8 +3,8 @@
 ;;;; jellyfin expects it, shows as TV/Show (Year)/Season 02/Show S02E05.mkv
 ;;;; and films as Films/Title (Year)/Title (Year).mkv, subtitles beside
 ;;;; their video. links whose torrent went are removed. what guessit can't
-;;;; place surely is listed instead, for linking by hand, and jellyfin is
-;;;; told which folders changed.
+;;;; place surely, or tmdb doesn't know, is listed instead, for linking by
+;;;; hand or a rule, and jellyfin is told which folders changed.
 ;;;;
 ;;;; paths are native strings throughout, never pathnames: torrent names
 ;;;; are full of brackets and stars, which pathnames read as wildcards
@@ -174,18 +174,23 @@ collection (14. Owarimonogatari) as an episode's number, so both go."
 
 (defun guess (paths)
   "What guessit makes of each path, relative to *video* so a torrent's
-folder names help, as hash tables in the same order."
+folder names help, as hash tables in the same order; and as the second
+value, what it makes of each file's name alone, for when the folders
+mislead it (K-ON! - AV1/Season 1/K-ON! - 01.mkv is a show called AV1 to
+it). Both from one guessit run."
   (when paths
-    (let ((out (with-output-to-string (s)
-                 (with-input-from-string (in (format nil "~{~a~%~}"
-                                                     (mapcar (lambda (p) (readable (relative *video* p)))
-                                                             paths)))
-                   (uiop:run-program '("guessit" "--json" "--input-file" "/dev/stdin")
-                                     :input in :output s :error-output *error-output*)))))
+    (let* ((names (append (mapcar (lambda (p) (readable (relative *video* p))) paths)
+                          (mapcar (lambda (p) (readable (basename p))) paths)))
+           (out (with-output-to-string (s)
+                  (with-input-from-string (in (format nil "~{~a~%~}" names))
+                    (uiop:run-program '("guessit" "--json" "--input-file" "/dev/stdin")
+                                      :input in :output s :error-output *error-output*)))))
       (let ((lines (remove "" (uiop:split-string out :separator '(#\Newline)) :test #'string=)))
-        (unless (= (length lines) (length paths))
-          (error "guessit answered ~d times for ~d names" (length lines) (length paths)))
-        (mapcar #'jzon:parse lines)))))
+        (unless (= (length lines) (length names))
+          (error "guessit answered ~d times for ~d names" (length lines) (length names)))
+        (let ((guesses (mapcar #'jzon:parse lines)))
+          (values (subseq guesses 0 (length paths))
+                  (nthcdr (length paths) guesses)))))))
 
 (defun field (guess name)
   "A field of GUESS, the first when guessit found several; nil for none."
@@ -333,17 +338,22 @@ year) of the first tmdb result, of YEAR if one is; :none for nothing;
           (setf (gethash (fold name) index) name))))
     index))
 
-(defun folder (index kind title year)
-  "The folder a show or film has, or a new one: named by tmdb if it knows it,
-else by guessit's title and year. Its title is the second value. :defer when
-jellyfin can't be asked."
-  (let ((id (identify kind title year)))
-    (cond ((eq id :unreachable) :defer)
-          ((consp id) (known-folder index id))
-          (t (values (or (gethash (fold title) index)
-                         (setf (gethash (fold title) index)
-                               (if year (format nil "~a (~d)" title year) title)))
-                     title)))))
+(defun folder (index kind candidates)
+  "The folder a show or film has, or a new one, named by tmdb: for the first
+of CANDIDATES, (title year) each, that tmdb knows. Its title is the second
+value. nil when tmdb knows none of them, :defer when jellyfin can't be
+asked. Without an api key nothing can be known, so it's named by the
+first's title and year, as guessit read them."
+  (if (null *key*)
+      (destructuring-bind (title year) (first candidates)
+        (values (or (gethash (fold title) index)
+                    (setf (gethash (fold title) index)
+                          (if year (format nil "~a (~d)" title year) title)))
+                title))
+      (dolist (candidate candidates nil)
+        (let ((id (apply #'identify kind candidate)))
+          (cond ((eq id :unreachable) (return :defer))
+                ((consp id) (return (known-folder index id))))))))
 
 (defun known-folder (index id)
   "The folder for ID, (tmdb name year), and its title."
@@ -423,38 +433,50 @@ name (Owarimonogatari 2nd Season 01 - Mayoi Hell)."
                                       (list :episode (fold folder) season eps part)))))))))
             (t (values nil "a rule that says neither film nor show"))))))
 
-(defun place (path guess shows films)
+(defun title-and-year (guess)
+  "(title year) as GUESS has them, or nil without a title."
+  (let ((title (let ((v (field guess "title"))) (and (stringp v) (clean v))))
+        (year (let ((v (field guess "year"))) (and (integerp v) v))))
+    (and title (string/= title "") (list title year))))
+
+(defun place (path guess alone shows films)
   "Where PATH, which GUESS is of, goes, without its extension, and its key for
 subtitles; or nil and why not, or nil and :defer when jellyfin can't say who
-it is yet. A rule for it goes first. SHOWS and FILMS index their roots'
-folders."
+it is yet. A rule for it goes first. Who it is is the title GUESS has, or
+else the one ALONE has, guessit's reading of the file's name alone; what
+season and episode, GUESS's. SHOWS and FILMS index their roots' folders."
   (let ((rule (rule-for path)))
     (when rule
       (return-from place (place-by-rule rule path guess shows films))))
-  (let ((title (let ((v (field guess "title"))) (and (stringp v) (clean v))))
-        (year (let ((v (field guess "year"))) (and (integerp v) v)))
+  (let ((candidates (remove-duplicates (remove nil (list (title-and-year guess) (title-and-year alone)))
+                                       :test #'equal :from-end t
+                                       :key (lambda (c) (list (fold (first c)) (second c)))))
         (season (let ((v (field guess "season"))) (and (integerp v) v)))
         (episodes (remove-if-not #'integerp (fields guess "episode"))))
-    (cond ((or (null title) (string= title "")) (values nil "no title"))
+    (flet ((unknown ()
+             (values nil (format nil "tmdb knows no ~{~a~^ or ~}"
+                                 (mapcar (lambda (c) (format nil "~a~@[ (~d)~]" (first c) (second c)))
+                                         candidates)))))
+    (cond ((null candidates) (values nil "no title"))
           ;; an "episode" with neither season nor number is a film whose name
           ;; has a word guessit takes for an episode's (Blade.Runner.Final.Cut)
           ((and (string= (field guess "type") "episode")
                 (or season episodes))
            (cond ((null episodes) (values nil "an episode without its number"))
                  ((null season) (values nil "an episode without a season (absolute numbering?)"))
-                 (t (multiple-value-bind (show name) (folder shows :show title year)
-                      (if (eq show :defer)
-                          (values nil :defer)
-                          (values (format nil "~a/~a/Season ~2,'0d/~a S~2,'0dE~{~2,'0d~^-E~}"
-                                          *shows* show season name season episodes)
-                                  (list :episode (fold show) season episodes)))))))
+                 (t (multiple-value-bind (show name) (folder shows :show candidates)
+                      (cond ((eq show :defer) (values nil :defer))
+                            ((null show) (unknown))
+                            (t (values (format nil "~a/~a/Season ~2,'0d/~a S~2,'0dE~{~2,'0d~^-E~}"
+                                               *shows* show season name season episodes)
+                                       (list :episode (fold show) season episodes))))))))
           ((member (field guess "type") '("movie" "episode") :test #'equal)
-           (let ((film (folder films :film title year)))
-             (if (eq film :defer)
-                 (values nil :defer)
-                 (values (format nil "~a/~a/~a" *films* film film)
-                         (list :film (fold film))))))
-          (t (values nil (format nil "neither episode nor film: ~a" (field guess "type")))))))
+           (let ((film (folder films :film candidates)))
+             (cond ((eq film :defer) (values nil :defer))
+                   ((null film) (unknown))
+                   (t (values (format nil "~a/~a/~a" *films* film film)
+                              (list :film (fold film)))))))
+          (t (values nil (format nil "neither episode nor film: ~a" (field guess "type"))))))))
 
 ;;; which of two copies is better
 ;;;
@@ -673,18 +695,18 @@ top, or nothing for a file there on its own."
     (if slash (subseq rel 0 slash) "")))
 
 (defun link-all (run paths)
-  (let* ((guesses (guess paths))
-         (shows (folders *shows*))
+  (multiple-value-bind (guesses alones) (guess paths)
+  (let* ((shows (folders *shows*))
          (films (folders *films*))
          ;; what became of each video, by what it is and the torrent it came
          ;; with, for its subtitles: where it's linked, or (:second place video)
          (stems (make-hash-table :test 'equal)))
     ;; videos first, so subtitles find where theirs went
-    (loop for path in paths and g in guesses
+    (loop for path in paths and g in guesses and a in alones
           when (member (extension path) +videos+ :test #'string=)
             do (unless-failing (run path)
                 (unless (find "Sample" (fields g "other") :test #'equal)
-                 (multiple-value-bind (stem key) (place path g shows films)
+                 (multiple-value-bind (stem key) (place path g a shows films)
                    (cond
                      ((eq key :defer) (incf (run-deferred run)))
                      ((null stem) (note-unsure run path key))
@@ -702,10 +724,10 @@ top, or nothing for a file there on its own."
                              (:second
                               (setf (gethash (cons key (torrent path)) stems)
                                     (list :second dest path))))))))))))
-    (loop for path in paths and g in guesses
+    (loop for path in paths and g in guesses and a in alones
           when (member (extension path) +subtitles+ :test #'string=)
             do (unless-failing (run path)
-                (multiple-value-bind (stem key) (place path g shows films)
+                (multiple-value-bind (stem key) (place path g a shows films)
                  (let ((stem (and stem (gethash (cons key (torrent path)) stems)))
                        (language (field g "subtitle_language")))
                    (cond ((stringp stem)
@@ -714,7 +736,7 @@ top, or nothing for a file there on its own."
                                                 (extension path))))
                          ((consp stem)
                           (destructuring-bind (dest video) (rest stem)
-                            (push (list path dest video) (run-seconds run)))))))))))
+                            (push (list path dest video) (run-seconds run))))))))))))
 
 ;;; telling jellyfin
 

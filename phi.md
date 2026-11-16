@@ -186,7 +186,10 @@ switched to, so a rewrite stops deploys until its state is fixed by hand.
   (TMDb) and their folders named `Name (Year) [tmdbid-N]`, so one show under
   two titles (Sousou no Frieren, Frieren: Beyond Journey's End) is one
   folder; lookups are kept in `/var/lib/odos/ids`, and while Jellyfin is
-  away, unidentified files wait for the next run. `S01E01v2` loses its `v2`
+  away, unidentified files wait for the next run. A title is tried as
+  guessit reads the path, then as it reads the file's name alone (a
+  release's tag in the folder above `Season 1` is a title to it); what TMDb
+  knows by neither waits in `unsure`, unlinked. `S01E01v2` loses its `v2`
   before guessit reads it, since guessit would read a film otherwise.
   Where no name says enough (Monogatari: one TMDb show whose arcs are
   seasons and extras, Kizumonogatari three films), `odos.rules` in

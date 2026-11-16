@@ -128,7 +128,8 @@ switched to, so a rewrite stops deploys until its state is fixed by hand.
   in the same namespace (trackers see one address for searching and
   announcing) at prowlarr.amartia.online for `torrent`, its own login off
   (Authelia's), its API key generated (`crypt.generated.prowlarr-api`) and
-  reachable on the host at 127.0.0.1:9697. `prowlarr-clients` declares
+  reachable on the host at 127.0.0.1:9697 and over the VPN (torrent and
+  admin roles) at 10.10.2.1:9697, where the WireGuard key is the login. `prowlarr-clients` declares
   Transmission (127.0.0.1:9091 from inside) as its download client through
   that API; a release's category picks its directory under /srv/seed
   (video, audio, books, else other).
@@ -164,7 +165,7 @@ switched to, so a rewrite stops deploys until its state is fixed by hand.
   interface (`trusted`, `tcp`). `wg-portal-roles` declares the interfaces
   through wg-portal's API, with keys from `crypt.generated.vpn-fog-<name>`.
   Roles: `admin` (lldap_admin, everything, at 10.10.1.1), `torrent` (the
-  RPC on 9092, for Tremotesf) and `ssh` (port 22, for the lldap group
+  RPC and web UI on 9092, prowlarr on 9697) and `ssh` (port 22, for the lldap group
   `ssh`). `fog` and `dn42` stay networkd's.
 - sshd is only reachable over the VPN (since 2026-11-16), keys only, no
   keyboard-interactive. `fog`'s default host is 10.10.1.1, the admin role's

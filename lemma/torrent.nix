@@ -153,7 +153,7 @@
 	# at 127.0.0.1:${toString rpc} there
 	prowlarr = "prowlarr.amartia.online";
 	prowlarrPort = 9696; # inside the namespace
-	prowlarrProxy = 9697; # outside it, for caddy and whatever searches through it
+	prowlarrProxy = 9697; # outside it, for caddy, the vpn and whatever searches through it
 
 	tools = with pkgs; [ iproute2 iputils wireguard-tools jq curl coreutils gnused gnugrep ];
 in {
@@ -295,16 +295,17 @@ in {
 
 	# who may: members of `torrent`, added in lldap's ui
 	lldap.groups = [ "torrent" ];
-	# and from their own devices, over the vpn, the rpc and nothing else
+	# and from their own devices, over the vpn, transmission and prowlarr
+	# and nothing else
 	vpn.roles.torrent = {
 		n = 2;
 		group = "torrent";
 		label = "torrent";
-		tcp = [ proxy ];
+		tcp = [ proxy prowlarrProxy ];
 	};
 	invite.groups.torrent = {
 		label = "Torrents";
-		info = "https://${torrent}, after a second factor you set up on first login";
+		info = "https://${torrent}, after a second factor you set up on first login; or over the vpn, from a device you add at https://vpn.amartia.online";
 	};
 	services.authelia.instances.main.settings.access_control.rules = [
 		{ domain = torrent; subject = [ "group:torrent" ]; policy = "two_factor"; }
@@ -401,12 +402,18 @@ in {
 		'';
 	};
 
-	# its web ui and api, carried out of the namespace like transmission's
+	# its web ui and api, carried out of the namespace like transmission's,
+	# to the same places: on the vpn its own login is off too, and the
+	# wireguard key is the login
 	systemd.sockets.prowlarr-proxy = {
 		wantedBy = [ "sockets.target" ];
-		listenStreams = [ "127.0.0.1:${toString prowlarrProxy}" ];
+		listenStreams = [ "127.0.0.1:${toString prowlarrProxy}" ]
+			++ config.vpn.roles.torrent.listen prowlarrProxy
+			++ config.vpn.roles.admin.listen prowlarrProxy;
+		socketConfig.FreeBind = true;
 	};
 	systemd.services.prowlarr-proxy = {
+		# stopped with the socket, as transmission-rpc is
 		partOf = [ "prowlarr-proxy.socket" ];
 		requires = [ "prowlarr.service" ];
 		bindsTo = [ "airvpn.service" ];

@@ -24,14 +24,21 @@
 		# what kino links to, readable by kino
 		video = { at = "/srv/seed/video"; owner = "${toString uid.transmission}:${toString gid.kino}";
 			modes = [ "file_mode=0640" "dir_mode=0750" ]; };
-		# jellyfin's libraries, mostly links into seed/video
+		# jellyfin's libraries, mostly links into seed/video; and kavita's,
+		# links into the shelf's trees
 		kino = { at = "/srv/kino"; owner = "0:${toString gid.kino}";
 			modes = [ "file_mode=0660" "dir_mode=0770" ]; };
-	};
+	} // lib.genAttrs [ "manga" "comics" "books" ] (kind: {
+		# what kavita reads (lemma/shelf.nix), each kind its own tree, readable
+		# by shelf and by nobody else, as video is by kino
+		at = "/srv/seed/${kind}"; owner = "${toString uid.transmission}:${toString gid.shelf}";
+		modes = [ "file_mode=0640" "dir_mode=0750" ];
+	});
 	uid.transmission = config.ids.uids.transmission;
-	# fixed, since force_owner takes numbers: the ones nixos gave these
-	# groups when they were first made, which it won't change afterwards
-	gid = { seed = 983; kino = 984; };
+	# fixed, since force_owner takes numbers: the ones nixos gave seed and
+	# kino when they were first made, which it won't change afterwards, and
+	# one for shelf above nixos' range for groups it numbers itself
+	gid = { seed = 983; kino = 984; shelf = 1985; };
 
 	# smb 3.1.1, encrypted (seal) on the wire too. symlinks are stored as
 	# small files (mfsymlinks); gocryptfs keeps its own symlinks that way,
@@ -72,7 +79,8 @@ in {
 
 	users.groups.seed.gid = gid.seed;
 	users.groups.kino.gid = gid.kino;
-	users.users.lux.extraGroups = [ "seed" "kino" ];
+	users.groups.shelf.gid = gid.shelf;
+	users.users.lux.extraGroups = [ "seed" "kino" "shelf" ];
 	users.users.jellyfin.extraGroups = [ "kino" ];
 
 	# traversable, so the node exporter can stat the mounts beneath; what

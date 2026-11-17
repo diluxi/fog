@@ -263,7 +263,7 @@ in {
 	};
 
 	systemd.services.transmission = {
-		unitConfig.RequiresMountsFor = [ "/srv/seed" "/srv/seed/video" ];
+		unitConfig.RequiresMountsFor = [ "/srv/seed" ] ++ map (kind: "/srv/seed/${kind}") [ "video" "manga" "comics" "books" ];
 		bindsTo = [ "airvpn.service" ];
 		after = [ "airvpn.service" ];
 		serviceConfig = inside;

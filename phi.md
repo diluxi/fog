@@ -159,9 +159,11 @@ switched to, so a rewrite stops deploys until its state is fixed by hand.
   encrypted (names and contents; sizes show), each tree its own gocryptfs
   directory under srv/cipher/, mounted root-only at /var/lib/witness0/<tree>
   and decrypted at: `/srv/seed`, what transmission seeds, sorted by kind;
-  `/srv/seed/video`, what kino may link to; `/srv/kino`, Jellyfin's
-  libraries, mostly symlinks into seed/video (`mfsymlinks`). Partial
-  torrents stay in /var/lib. Losing the key loses the box.
+  `/srv/seed/video`, what kino may link to; `/srv/seed/{manga,comics,books}`,
+  what the group `shelf` (gid 1985, Kavita's) may read, one tree each;
+  `/srv/kino`, Jellyfin's and Kavita's libraries, mostly symlinks into
+  those (`mfsymlinks`). Partial torrents stay in /var/lib. Losing the key
+  loses the box.
 - VPN (`lemma/vpn.nix`): wg-portal at vpn.amartia.online, logins only
   through Authelia's OIDC with a second factor. Each `vpn.roles.<name>` is
   a WireGuard interface `fog-<name>` that wg-portal owns with its peers,

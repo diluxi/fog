@@ -2,6 +2,8 @@
 	odos = pkgs.callPackage ./odos/package.nix {};
 	kino = "/srv/kino";
 	video = "/srv/seed/video";
+	# the shelf's trees, each linked into a library of kavita's (lemma/shelf.nix)
+	shelves = { manga = "Manga"; comics = "Comics"; books = "Books"; };
 
 	# finished torrents leave a marker here, which only says to run. transmission
 	# runs in airvpn's namespace with its own root, but has the host's /run
@@ -13,7 +15,8 @@
 	# the rules, as odos reads them: s-expressions
 	lisp = s: "\"${lib.replaceStrings [ "\\" "\"" ] [ "\\\\" "\\\"" ] s}\"";
 	rule = path: r:
-		if r.film != null then "(${lisp path} :film ${toString r.film})\n"
+		if r.series != null then "(${lisp path} :series ${lisp r.series})\n"
+		else if r.film != null then "(${lisp path} :film ${toString r.film})\n"
 		else "(${lisp path} :show ${toString r.show} :episodes (${lib.concatMapStrings (e:
 			"(${toString e.from} ${if e.to == null then "nil" else toString e.to} ${toString e.season} ${toString e.offset} ${if e.parts then "t" else "nil"})") r.episodes}))\n";
 	rules = pkgs.writeText "odos-rules" (lib.concatStrings (lib.mapAttrsToList rule config.odos.rules));
@@ -24,13 +27,20 @@ in {
 		description = ''
 			Where a torrent's folders and files are said to be, for what no name
 			says well enough: a path under ${video}, and the tmdb film it is, or
-			the tmdb show whose seasons its episodes are. The longest path that
-			holds a file is its rule.
+			the tmdb show whose seasons its episodes are; or a path under
+			/srv/seed that starts with a shelf's tree (manga/, comics/, books/),
+			and the series its files are. The longest path that holds a file is
+			its rule.
 		'';
 		default = {};
 		type = lib.types.attrsOf (lib.types.submodule ({ config, ... }: {
 			options = {
 				film = lib.mkOption { type = lib.types.nullOr lib.types.ints.positive; default = null; };
+				series = lib.mkOption {
+					description = "The series a shelf's files are, as its folder in kavita's library.";
+					type = lib.types.nullOr lib.types.str;
+					default = null;
+				};
 				show = lib.mkOption { type = lib.types.nullOr lib.types.ints.positive; default = null; };
 				season = lib.mkOption {
 					description = "The season all its episodes are, shifted by offset.";
@@ -75,7 +85,8 @@ in {
 
 		systemd.services.odos = {
 			description = "link finished torrents into kino's libraries";
-			unitConfig.RequiresMountsFor = [ kino video ];
+			unitConfig.RequiresMountsFor = [ kino video ]
+				++ map (tree: "/srv/seed/${tree}") (lib.attrNames shelves);
 			after = [ "jellyfin.service" ];
 			serviceConfig = {
 				Type = "oneshot";
@@ -89,11 +100,13 @@ in {
 					"--spool" spool
 					"--key-file" "%d/api"
 				"--rules" rules
-				];
+				] + lib.concatStrings (lib.mapAttrsToList (tree: library:
+					" --shelf ${lib.escapeShellArg "/srv/seed/${tree}:${kino}/${library}"}") shelves);
 				LoadCredential = [ "api:${config.crypt.generated.jellyfin-api.path}" ];
 				DynamicUser = true;
-				# kino may write /srv/kino and read /srv/seed/video
-				SupplementaryGroups = [ "kino" ];
+				# kino may write /srv/kino and read /srv/seed/video, shelf read the
+				# shelf's trees
+				SupplementaryGroups = [ "kino" "shelf" ];
 				StateDirectory = "odos";
 				ReadOnlyPaths = [ "/srv/seed" ];
 				ReadWritePaths = [ kino spool ];

@@ -214,6 +214,15 @@ switched to, so a rewrite stops deploys until its state is fixed by hand.
   shows what it would do. It tells Jellyfin which folders changed with the
   generated key `crypt.generated.jellyfin-api`, which kino's pre-start
   writes into Jellyfin's `ApiKeys` as `odos`.
+  odos also links the shelf's trees for Kavita: each file of
+  `/srv/seed/{manga,comics,books}` (cbz, cbr, cb7, cbt, zip, rar, 7z, pdf,
+  epub) keeps its name, in `/srv/kino/{Manga,Comics,Books}/<Series>/`,
+  since Kavita reads volumes and chapters itself and only wants a folder
+  per series. The series is the nearest folder name above the file that
+  says one, then the file's own name, without tags (`[group]`,
+  `(Digital)`), volumes or chapters (`v01-10`, `c001`, `Vol. 3`, `001-054`);
+  what says none waits in `unsure`. A rule `"manga/<path>".series = "Name";`
+  (paths under /srv/seed) says it instead.
 - soju (`lemma/irc.nix`): an IRC bouncer at irc.amartia.online:6697 (TLS,
   caddy's certificate, copied in and reloaded on renewal) for the lldap
   group `irc`. soju's `auth http` asks a loopback Caddy site, which asks

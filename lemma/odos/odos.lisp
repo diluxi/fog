@@ -4,7 +4,8 @@
 ;;;; and films as Films/Title (Year)/Title (Year).mkv, subtitles beside
 ;;;; their video. links whose torrent went are removed. what guessit can't
 ;;;; place surely, or tmdb doesn't know, is listed instead, for linking by
-;;;; hand or a rule, and jellyfin is told which folders changed.
+;;;; hand or a rule, and jellyfin is told which folders changed. the shelf's
+;;;; trees (manga, comics, books) are linked for kavita, by series.
 ;;;;
 ;;;; paths are native strings throughout, never pathnames: torrent names
 ;;;; are full of brackets and stars, which pathnames read as wildcards
@@ -26,10 +27,13 @@
 (defvar *key-file* nil "Jellyfin's api key, or nothing to tell it.")
 (defvar *dry-run* nil "Say what would be linked, and change nothing.")
 (defvar *rules-file* nil "Where a torrent's folders and files are said to be, by a person.")
+(defvar *shelves* '() "(tree . library) each: the shelf's trees under the seed tree, and kavita's
+libraries their files are linked into.")
 
 (defparameter +videos+
   '("mkv" "mp4" "m4v" "avi" "mov" "wmv" "webm" "ts" "m2ts" "mpg" "mpeg" "flv" "ogv"))
 (defparameter +subtitles+ '("srt" "ass" "ssa" "vtt" "sub" "idx" "sup" "smi"))
+(defparameter +shelf-files+ '("cbz" "cbr" "cb7" "cbt" "zip" "rar" "7z" "pdf" "epub"))
 
 (defun say (control &rest args)
   (format t "~?~%" control args)
@@ -131,14 +135,14 @@ directory that can't be read is said and passed over."
 
 (defun survey ()
   "The targets linked to from anywhere under *links*, as a set, after links
-into *video* whose file is gone are removed. Returns the folders that lost
+into *video* or a shelf's tree whose file is gone are removed. Returns the folders that lost
 one as the second value."
   (let ((linked (make-hash-table :test 'equal)) gone)
     (walk *links*
           (lambda (path kind)
             (when (eq kind :link)
               (let ((to (target path)))
-                (cond ((or (not (under *video* to)) (exists to))
+                (cond ((or (not (or (under *video* to) (shelf-of to))) (exists to))
                        (setf (gethash to linked) t))
                       (*dry-run* (say "would remove ~a, its file is gone" path))
                       (t (sb-posix:unlink path)
@@ -382,9 +386,10 @@ first's title and year, as guessit read them."
             (let ((*read-eval* nil) (*package* (find-package :odos)))
               (loop for form = (read in nil in) until (eq form in) collect form))))))
 
-(defun rule-for (path)
-  (let ((rel (relative *video* path)) best)
-    (dolist (r *rules* best)
+(defun longest-rule (rel rules)
+  "Of RULES, the one whose path is the longest that holds REL."
+  (let (best)
+    (dolist (r rules best)
       (let ((prefix (first r)))
         (when (and (or (string= rel prefix)
                        (and (> (length rel) (length prefix))
@@ -392,6 +397,11 @@ first's title and year, as guessit read them."
                             (char= (char rel (length prefix)) #\/)))
                    (or (null best) (> (length prefix) (length (first best)))))
           (setf best r))))))
+
+(defun rule-for (path)
+  "The rule for a video, by its path under *video*."
+  (longest-rule (relative *video* path)
+                (remove-if (lambda (r) (getf (rest r) :series)) *rules*)))
 
 (defun numbers (path guess)
   "The episode numbers PATH holds: guessit's, or the one before \" - \" in its
@@ -738,6 +748,78 @@ top, or nothing for a file there on its own."
                           (destructuring-bind (dest video) (rest stem)
                             (push (list path dest video) (run-seconds run))))))))))))
 
+;;; the shelf: manga, comics and books, for kavita. kavita reads series,
+;;; volumes and chapters from file names itself, and wants each series in a
+;;; folder of its own; so each file keeps its name, in a folder named for
+;;; its series, and kavita reads the rest
+
+(defun shelf-of (path)
+  "The shelf, (tree . library), whose tree PATH is under."
+  (find-if (lambda (shelf) (under (car shelf) path)) *shelves*))
+
+(defun shelf-candidates (linked)
+  "Files of the shelf's kinds under its trees that nothing links to."
+  (let (found)
+    (dolist (shelf *shelves* (nreverse found))
+      (when (eq (kind (car shelf)) :directory)
+        (walk (car shelf)
+              (lambda (path kind)
+                (when (and (eq kind :file)
+                           (member (extension path) +shelf-files+ :test #'string=)
+                           (not (gethash path linked))
+                           (not (find #\Newline path)))
+                  (push path found))))))))
+
+(defun series-name (name)
+  "NAME, a folder's or a file's without its extension, as a series: without
+its tags ([group], (Digital), (2019)), and without the volumes or chapters
+it holds (v01-10, c001, Vol. 3, 001-054) and what follows them; a number
+at its end goes only as a range or padded (Saga 001), so Fahrenheit 451
+stays. Dots and underscores are spaces when there are no spaces. Empty
+when nothing's left (Volume 01)."
+  (let* ((s (ppcre:regex-replace-all "\\[[^]]*\\]|\\([^)]*\\)|\\{[^}]*\\}" name " "))
+         (s (substitute #\Space #\_ s))
+         (s (if (find #\Space (string-trim " " s)) s (substitute #\Space #\. s)))
+         (s (ppcre:regex-replace
+             "(?i)(^|\\s)(v|vol\\.?|volume|c|ch\\.?|chapter|#)\\s*\\d.*$" s ""))
+         (s (ppcre:regex-replace "(^|\\s)(\\d{1,4}\\s*-\\s*\\d{1,4}|0\\d{1,3})\\s*$" s "")))
+    (clean (string-trim " -" s))))
+
+(defun shelf-series (path shelf)
+  "The series PATH is of: the rule's, if a rule says, else what's left of the
+names of the folders above it, nearest first, up to its torrent's, as a
+series; else its own name's. nil when none says."
+  (let* ((root (car shelf))
+         (rule (longest-rule (relative (dirname root) path)
+                             (remove-if-not (lambda (r) (getf (rest r) :series)) *rules*))))
+    (if rule
+        (getf (rest rule) :series)
+        (let ((name (loop for dir = (dirname path) then (dirname dir)
+                          while (and (under root dir) (string/= dir root))
+                          for series = (series-name (basename dir))
+                          when (string/= series "") return series)))
+          (or name
+              (let* ((file (basename path))
+                     (series (series-name (subseq file 0 (or (position #\. file :from-end t)
+                                                             (length file))))))
+                (and (string/= series "") series)))))))
+
+(defun link-shelf (run paths)
+  "Links each of PATHS into its shelf's library, as Series/file."
+  (let ((indexes (make-hash-table :test 'equal)))
+    (dolist (path paths)
+      (unless-failing (run path)
+        (let* ((shelf (shelf-of path))
+               (library (cdr shelf))
+               (index (or (gethash library indexes)
+                          (setf (gethash library indexes) (folders library))))
+               (series (shelf-series path shelf)))
+          (if (null series)
+              (note-unsure run path "no series in its name or its folders'")
+              (let ((folder (or (gethash (fold series) index)
+                                (setf (gethash (fold series) index) series))))
+                (put run path (join (join library folder) (basename path))))))))))
+
 ;;; telling jellyfin
 
 (defun tell (updates)
@@ -803,10 +885,14 @@ top, or nothing for a file there on its own."
 (defun report (run gone)
   "What changed is added to what jellyfin hasn't heard yet, which is told.
 False if jellyfin couldn't be reached, and it's kept for next time."
-  (let* ((updates (remove-duplicates
+  (let* ((jellyfins (lambda (dir) (or (under *shows* dir) (under *films* dir))))
+         ;; kavita's libraries it scans itself
+         (updates (remove-duplicates
                    (append (read-pending)
-                           (mapcar (lambda (d) (cons "Created" d)) (run-changed run))
-                           (mapcar (lambda (d) (cons "Deleted" d)) gone))
+                           (mapcar (lambda (d) (cons "Created" d))
+                                   (remove-if-not jellyfins (run-changed run)))
+                           (mapcar (lambda (d) (cons "Deleted" d))
+                                   (remove-if-not jellyfins gone)))
                    :test #'equal)))
     (cond ((or (null updates) *dry-run*) t)
           ((null *key*) (say "no api key, so jellyfin finds these on its next scan") t)
@@ -834,7 +920,7 @@ couldn't say who something is."
   (read-ids)
   (read-rules)
   (unless *dry-run*
-    (dolist (root (list *shows* *films*))
+    (dolist (root (list* *shows* *films* (mapcar #'cdr *shelves*)))
       (ensure-directories root *links*)))
   (multiple-value-bind (linked gone) (survey)
     (let* ((run (make-run))
@@ -842,6 +928,8 @@ couldn't say who something is."
            (paths (remove-if (lambda (p) (assoc p seconds :test #'equal))
                              (candidates linked))))
       (when paths (link-all run paths))
+      (let ((books (shelf-candidates linked)))
+        (when books (link-shelf run books)))
       (unless *dry-run*
         (write-ids)
         ;; the latest word on each copy
@@ -863,7 +951,8 @@ couldn't say who something is."
 
 (defun usage ()
   (format *error-output* "usage: odos [--dry-run] [--video DIR] [--links DIR] [--shows DIR] [--films DIR]
-            [--state DIR] [--spool DIR] [--jellyfin URL] [--key-file FILE] [--rules FILE]~%")
+            [--state DIR] [--spool DIR] [--jellyfin URL] [--key-file FILE] [--rules FILE]
+            [--shelf TREE:LIBRARY]...~%")
   (uiop:quit 64))
 
 (defun main ()
@@ -876,6 +965,10 @@ couldn't say who something is."
                    (setf *dry-run* t)
                    (let ((value (or (pop args) (usage))))
                      (cond ((string= flag "--video") (setf *video* value))
+                           ((string= flag "--shelf")
+                            (let ((colon (or (position #\: value) (usage))))
+                              (setf *shelves* (append *shelves* (list (cons (subseq value 0 colon)
+                                                                            (subseq value (1+ colon))))))))
                            ((string= flag "--links") (setf *links* value))
                            ((string= flag "--shows") (setf *shows* value))
                            ((string= flag "--films") (setf *films* value))

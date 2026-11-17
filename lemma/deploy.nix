@@ -129,12 +129,16 @@
 	# starts units; polkit decides who may (wheel: any, phi: fog-deploy).
 	fog = pkgs.writeShellScriptBin "fog" ''
 		run() {
-			since=$(date +%s)
-			systemctl start "$1.service"; status=$?
-			# only show the log if this run wrote it (polkit may have refused)
 			log=${state}/$1.log
-			[ -f $log ] && [ "$(stat -c %Y $log)" -ge "$since" ] && cat $log
-			exit $status
+			since=$(date +%s)
+			ours() { [ -f $log ] && [ "$(stat -c %Y $log)" -ge "$since" ]; }
+			# the unit runs while its log is followed: from when this run has
+			# written it (tee empties it first), until systemctl returns. no
+			# log if polkit refused, or the unit never ran
+			systemctl start "$1.service" & start=$!
+			while kill -0 $start 2>/dev/null && ! ours; do sleep 0.2; done
+			ours && tail -n +1 -f --pid=$start $log
+			wait $start
 		}
 		case ''${1-} in
 		ratify) run fog-ratify ;; # make the running system the boot default

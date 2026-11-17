@@ -221,6 +221,17 @@ switched to, so a rewrite stops deploys until its state is fixed by hand.
   soju user. One factor, like xmpp. Naming that endpoint drops Authelia's
   defaults, so `id.nix` names `forward-auth` too. History is soju's sqlite,
   expiring after a year.
+- Kavita (`lemma/shelf.nix`) at shelf.amartia.online, for the lldap group
+  `shelf` (invitable) with a second factor: Authelia's OIDC client
+  `kavita`, `client_secret_post` (ASP.NET sends it in the body), with
+  `offline_access` and refresh tokens, since Kavita asks for them. Only
+  the issuer, client and secret are in its `appsettings.json`; the rest is
+  in its database, set once in its UI by its first account (the admin,
+  local): libraries Manga, Comics and Books at `/srv/kino/{Manga,Comics,Books}`
+  (types Manga, Comic, Book), and under OpenID Connect: provision
+  accounts, don't sync user settings, default role Login, default
+  libraries all three. Kavita scans on its own schedule; odos doesn't tell
+  it anything.
 
 ### Next, as agreed
 

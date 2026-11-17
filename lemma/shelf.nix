@@ -3,7 +3,7 @@
 	shelf = "shelf.${domain}";
 	auth = "auth.${domain}";
 	port = 5000;
-	kino = "/srv/kino";
+	shelf-tree = "/srv/shelf";
 
 	# kavita's client secret, made on lemma0 with its pbkdf2 digest beside it:
 	# kavita reads the secret, authelia only the digest
@@ -20,7 +20,7 @@
 	];
 	library = l: {
 		inherit (l) name type;
-		folders = [ "${kino}/${l.name}" ];
+		folders = [ "${shelf-tree}/${l.name}" ];
 		metadataProvider = l.provider;
 		fileGroupTypes = l.files;
 		# inotify doesn't reach through gocryptfs and smb
@@ -52,7 +52,7 @@
 	};
 in {
 	# kavita reads manga, comics and books from the libraries odos makes in
-	# /srv/kino, links into /srv/seed/{manga,comics,books} (lemma/box.nix)
+	# /srv/shelf, links into /srv/seed/{manga,comics,books} (lemma/box.nix)
 	services.kavita = {
 		enable = true;
 		settings = {
@@ -87,10 +87,11 @@ in {
 			rm $out.both
 		'';
 	};
-	# kino to reach /srv/kino, shelf to read what its links lead to
-	users.users.kavita.extraGroups = [ "kino" "shelf" ];
+	# shelf to read its libraries and what their links lead to, and nothing
+	# of kino's
+	users.users.kavita.extraGroups = [ "shelf" ];
 	systemd.services.kavita.unitConfig.RequiresMountsFor =
-		[ kino ] ++ map (kind: "/srv/seed/${kind}") [ "manga" "comics" "books" ];
+		[ shelf-tree ] ++ map (kind: "/srv/seed/${kind}") [ "manga" "comics" "books" ];
 
 	# what kavita keeps in its database, declared through its api as its
 	# admin fog: the libraries, and what a login through authelia makes.
@@ -155,6 +156,11 @@ in {
 			get settings | jq -c --argjson ids "$ids" \
 				--argjson oidc ${lib.escapeShellArg (builtins.toJSON oidcSettings)} \
 				'.oidcConfig += $oidc + {defaultLibraries: $ids}' | post settings
+
+			# and a scan: kavita scans a library when it's made, and after an
+			# update only when its number of folders or its type changed, and
+			# odos doesn't tell it of new links
+			curl -sSf -K "$rc" -X POST "$api/library/scan-all" >/dev/null
 		'';
 	};
 

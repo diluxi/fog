@@ -18,7 +18,8 @@
 (in-package #:odos)
 
 (defvar *video* "/srv/seed/video" "What's linked to.")
-(defvar *links* "/srv/kino" "Where links are looked for, which take a file.")
+(defvar *links* "/srv/kino" "Where links are looked for, which take a file; and the shelf's
+libraries.")
 (defvar *shows* "/srv/kino/TV")
 (defvar *films* "/srv/kino/Films")
 (defvar *state* "/var/lib/odos" "pending, what jellyfin hasn't heard yet; unsure, what odos left alone.")
@@ -133,23 +134,31 @@ directory that can't be read is said and passed over."
   (let ((to (sb-posix:readlink link)))
     (normalize (if (char= (char to 0) #\/) to (join (dirname link) to)))))
 
+(defun link-root (path)
+  "The root PATH's link is under: a shelf's library, or *links*."
+  (or (cdr (find-if (lambda (shelf) (under (cdr shelf) path)) *shelves*)) *links*))
+
 (defun survey ()
-  "The targets linked to from anywhere under *links*, as a set, after links
-into *video* or a shelf's tree whose file is gone are removed. Returns the folders that lost
-one as the second value."
+  "The targets linked to from anywhere under *links* and the shelf's
+libraries, as a set, after links into *video* or a shelf's tree whose file
+is gone are removed. Returns the folders that lost one as the second
+value."
   (let ((linked (make-hash-table :test 'equal)) gone)
-    (walk *links*
-          (lambda (path kind)
-            (when (eq kind :link)
-              (let ((to (target path)))
-                (cond ((or (not (or (under *video* to) (shelf-of to))) (exists to))
-                       (setf (gethash to linked) t))
-                      (*dry-run* (say "would remove ~a, its file is gone" path))
-                      (t (sb-posix:unlink path)
-                         (say "removed ~a, its file is gone" path)
-                         (push path gone)))))))
+    (dolist (root (cons *links* (remove-if (lambda (library) (under *links* library))
+                                           (mapcar #'cdr *shelves*))))
+      (when (eq (kind root) :directory)
+        (walk root
+              (lambda (path kind)
+                (when (eq kind :link)
+                  (let ((to (target path)))
+                    (cond ((or (not (or (under *video* to) (shelf-of to))) (exists to))
+                           (setf (gethash to linked) t))
+                          (*dry-run* (say "would remove ~a, its file is gone" path))
+                          (t (sb-posix:unlink path)
+                             (say "removed ~a, its file is gone" path)
+                             (push path gone)))))))))
     (dolist (link gone)
-      (prune (dirname link) *links*))
+      (prune (dirname link) (link-root link)))
     (values linked (remove-duplicates (mapcar #'dirname gone) :test #'string=))))
 
 (defun candidates (linked)
@@ -619,7 +628,7 @@ shorter; nil if ffprobe can't say."
 (defun make-link (run target dest &optional replace)
   "DEST links to TARGET; a REPLACEd link is swapped in one rename."
   (cond (*dry-run* (setf (gethash dest (run-planned run)) target))
-        (t (ensure-directories (dirname dest) *links*)
+        (t (ensure-directories (dirname dest) (link-root dest))
            (if replace
                (let ((new (concatenate 'string dest ".odos")))
                  (when (kind new) (sb-posix:unlink new))
@@ -920,8 +929,10 @@ couldn't say who something is."
   (read-ids)
   (read-rules)
   (unless *dry-run*
-    (dolist (root (list* *shows* *films* (mapcar #'cdr *shelves*)))
-      (ensure-directories root *links*)))
+    (dolist (root (list *shows* *films*))
+      (ensure-directories root *links*))
+    (dolist (library (mapcar #'cdr *shelves*))
+      (ensure-directories library (dirname library))))
   (multiple-value-bind (linked gone) (survey)
     (let* ((run (make-run))
            (seconds (settled (read-seconds)))

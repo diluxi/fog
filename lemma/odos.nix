@@ -2,7 +2,9 @@
 	odos = pkgs.callPackage ./odos/package.nix {};
 	kino = "/srv/kino";
 	video = "/srv/seed/video";
-	# the shelf's trees, each linked into a library of kavita's (lemma/shelf.nix)
+	# the shelf's trees, each linked into a library of kavita's in /srv/shelf
+	# (lemma/shelf.nix)
+	shelf = "/srv/shelf";
 	shelves = { manga = "Manga"; comics = "Comics"; books = "Books"; };
 
 	# finished torrents leave a marker here, which only says to run. transmission
@@ -85,7 +87,7 @@ in {
 
 		systemd.services.odos = {
 			description = "link finished torrents into kino's libraries";
-			unitConfig.RequiresMountsFor = [ kino video ]
+			unitConfig.RequiresMountsFor = [ kino video shelf ]
 				++ map (tree: "/srv/seed/${tree}") (lib.attrNames shelves);
 			after = [ "jellyfin.service" ];
 			serviceConfig = {
@@ -101,15 +103,15 @@ in {
 					"--key-file" "%d/api"
 				"--rules" rules
 				] + lib.concatStrings (lib.mapAttrsToList (tree: library:
-					" --shelf ${lib.escapeShellArg "/srv/seed/${tree}:${kino}/${library}"}") shelves);
+					" --shelf ${lib.escapeShellArg "/srv/seed/${tree}:${shelf}/${library}"}") shelves);
 				LoadCredential = [ "api:${config.crypt.generated.jellyfin-api.path}" ];
 				DynamicUser = true;
-				# kino may write /srv/kino and read /srv/seed/video, shelf read the
-				# shelf's trees
+				# kino may write /srv/kino and read /srv/seed/video, shelf write
+				# /srv/shelf and read the shelf's trees
 				SupplementaryGroups = [ "kino" "shelf" ];
 				StateDirectory = "odos";
 				ReadOnlyPaths = [ "/srv/seed" ];
-				ReadWritePaths = [ kino spool ];
+				ReadWritePaths = [ kino shelf spool ];
 				# while jellyfin is away, what it should hear waits in
 				# /var/lib/odos/pending, and odos tries again in a minute
 				Restart = "on-failure";

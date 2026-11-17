@@ -161,9 +161,9 @@ switched to, so a rewrite stops deploys until its state is fixed by hand.
   and decrypted at: `/srv/seed`, what transmission seeds, sorted by kind;
   `/srv/seed/video`, what kino may link to; `/srv/seed/{manga,comics,books}`,
   what the group `shelf` (gid 1985, Kavita's) may read, one tree each;
-  `/srv/kino`, Jellyfin's and Kavita's libraries, mostly symlinks into
-  those (`mfsymlinks`). Partial torrents stay in /var/lib. Losing the key
-  loses the box.
+  `/srv/kino`, Jellyfin's libraries, and `/srv/shelf`, Kavita's (group
+  `shelf`), mostly symlinks into those (`mfsymlinks`). Partial torrents
+  stay in /var/lib. Losing the key loses the box.
 - VPN (`lemma/vpn.nix`): wg-portal at vpn.amartia.online, logins only
   through Authelia's OIDC with a second factor. Each `vpn.roles.<name>` is
   a WireGuard interface `fog-<name>` that wg-portal owns with its peers,
@@ -216,7 +216,7 @@ switched to, so a rewrite stops deploys until its state is fixed by hand.
   writes into Jellyfin's `ApiKeys` as `odos`.
   odos also links the shelf's trees for Kavita: each file of
   `/srv/seed/{manga,comics,books}` (cbz, cbr, cb7, cbt, zip, rar, 7z, pdf,
-  epub) keeps its name, in `/srv/kino/{Manga,Comics,Books}/<Series>/`,
+  epub) keeps its name, in `/srv/shelf/{Manga,Comics,Books}/<Series>/`,
   since Kavita reads volumes and chapters itself and only wants a folder
   per series. The series is the nearest folder name above the file that
   says one, then the file's own name, without tags (`[group]`,
@@ -239,11 +239,13 @@ switched to, so a rewrite stops deploys until its state is fixed by hand.
   admin `fog` (password `crypt.generated.kavita-admin`, the first account,
   made while Kavita has no admin; address fog@amartia.online, lldap's
   fog's, since Kavita joins logins to accounts by address): the libraries
-  Manga, Comics and Books at `/srv/kino/{Manga,Comics,Books}`, made again
+  Manga, Comics and Books at `/srv/shelf/{Manga,Comics,Books}`, made again
   as declared at every start, and logins that make an account with role
-  Login and every library. A Kavita whose first admin isn't fog makes
-  `kavita-setup` fail until fog is an admin. Kavita scans on its own
-  schedule; odos doesn't tell it anything.
+  Login and every library; then it scans them all, since odos doesn't
+  tell Kavita anything, and Kavita scans only on its schedule otherwise.
+  Kavita won't scan a library whose folder is empty (a lost mount, to
+  it). A Kavita whose first admin isn't fog makes `kavita-setup` fail
+  until fog is an admin.
 
 ### Next, as agreed
 

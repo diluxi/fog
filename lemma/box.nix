@@ -24,9 +24,11 @@
 		# what kino links to, readable by kino
 		video = { at = "/srv/seed/video"; owner = "${toString uid.transmission}:${toString gid.kino}";
 			modes = [ "file_mode=0640" "dir_mode=0750" ]; };
-		# jellyfin's libraries, mostly links into seed/video; and kavita's,
-		# links into the shelf's trees
+		# jellyfin's libraries, mostly links into seed/video
 		kino = { at = "/srv/kino"; owner = "0:${toString gid.kino}";
+			modes = [ "file_mode=0660" "dir_mode=0770" ]; };
+		# kavita's, links into the shelf's trees
+		shelf = { at = "/srv/shelf"; owner = "0:${toString gid.shelf}";
 			modes = [ "file_mode=0660" "dir_mode=0770" ]; };
 	} // lib.genAttrs [ "manga" "comics" "books" ] (kind: {
 		# what kavita reads (lemma/shelf.nix), each kind its own tree, readable

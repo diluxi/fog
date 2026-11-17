@@ -47,6 +47,11 @@
 		provisionAccounts = true;
 		syncUserSettings = false;
 		defaultRoles = [ "Login" ];
+		# no age restriction (-1, not applicable), and unrated series shown:
+		# kavita's own defaults are "unknown" without unknowns, which hides
+		# every series that has no rating, which is nearly all of them
+		defaultAgeRestriction = -1;
+		defaultIncludeUnknowns = true;
 		autoLogin = false;
 		disablePasswordAuthentication = false;
 	};

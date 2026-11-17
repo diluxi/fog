@@ -241,7 +241,8 @@ switched to, so a rewrite stops deploys until its state is fixed by hand.
   fog's, since Kavita joins logins to accounts by address): the libraries
   Manga, Comics and Books at `/srv/shelf/{Manga,Comics,Books}`, made again
   as declared at every start, and logins that make an account with role
-  Login and every library; then it scans them all, since odos doesn't
+  Login, every library and no age restriction (Kavita's default hides
+  every unrated series); then it scans them all, since odos doesn't
   tell Kavita anything, and Kavita scans only on its schedule otherwise.
   Kavita won't scan a library whose folder is empty (a lost mount, to
   it). A Kavita whose first admin isn't fog makes `kavita-setup` fail

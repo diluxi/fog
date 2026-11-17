@@ -235,12 +235,15 @@ switched to, so a rewrite stops deploys until its state is fixed by hand.
   `kavita`, `client_secret_post` (ASP.NET sends it in the body), with
   `offline_access` and refresh tokens, since Kavita asks for them. Only
   the issuer, client and secret are in its `appsettings.json`; the rest is
-  in its database, set once in its UI by its first account (the admin,
-  local): libraries Manga, Comics and Books at `/srv/kino/{Manga,Comics,Books}`
-  (types Manga, Comic, Book), and under OpenID Connect: provision
-  accounts, don't sync user settings, default role Login, default
-  libraries all three. Kavita scans on its own schedule; odos doesn't tell
-  it anything.
+  in its database, which `kavita-setup` declares through its API as the
+  admin `fog` (password `crypt.generated.kavita-admin`, the first account,
+  made while Kavita has no admin; address fog@amartia.online, lldap's
+  fog's, since Kavita joins logins to accounts by address): the libraries
+  Manga, Comics and Books at `/srv/kino/{Manga,Comics,Books}`, made again
+  as declared at every start, and logins that make an account with role
+  Login and every library. A Kavita whose first admin isn't fog makes
+  `kavita-setup` fail until fog is an admin. Kavita scans on its own
+  schedule; odos doesn't tell it anything.
 
 ### Next, as agreed
 

@@ -281,6 +281,11 @@ in {
 				};
 				# airvpn's forwarded port (qbittorrentPrepare), so peers reach us
 				Port = "@port@";
+				# every torrent active at once. off is qbittorrent's default only
+				# for a first run; a config written before its first start reads
+				# to it as an old install's, which gets queueing on, three
+				# torrents seeding and the rest queued
+				QueueingSystemEnabled = false;
 			};
 			# upnp and nat-pmp are for home routers
 			Network.PortForwardingEnabled = false;

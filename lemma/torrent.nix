@@ -299,6 +299,11 @@ in {
 	};
 
 	systemd.services.qbittorrent = {
+		# restarted on a switch once the new units are loaded, not stopped
+		# before and started after: in between, a request on its proxy's
+		# socket (qui polls) would start it from the old unit, with the old
+		# config, and the switch would find it running and leave it
+		stopIfChanged = false;
 		unitConfig.RequiresMountsFor = [ "/srv/seed" ] ++ map (kind: "/srv/seed/${kind}") [ "video" "manga" "comics" "books" ];
 		bindsTo = [ "airvpn.service" ];
 		after = [ "airvpn.service" ];
@@ -457,6 +462,8 @@ in {
 		printf 'PROWLARR__AUTH__APIKEY=%s\n' "$(openssl rand -hex 16)" >$out
 	'';
 	systemd.services.prowlarr = {
+		# as qbittorrent: its proxy's socket would start the old unit mid-switch
+		stopIfChanged = false;
 		bindsTo = [ "airvpn.service" ];
 		after = [ "airvpn.service" ];
 		serviceConfig = inside;

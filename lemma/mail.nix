@@ -1,4 +1,4 @@
-{ config, lib, ... }: let
+{ config, lib, pkgs, ... }: let
 	mx = "mx.amartia.online";
 	baseDN = "dc=amartia,dc=online";
 
@@ -75,6 +75,10 @@ in {
 	};
 
 	services.stalwart = {
+		# the version nixos' module writes its config for. `stalwart` names it
+		# too, with a warning at every evaluation; 0.16 and 1.0 are packaged,
+		# but the module can't run them yet
+		package = pkgs.stalwart_0_15;
 		enable = true;
 		stateVersion = "26.05";
 		credentials = {

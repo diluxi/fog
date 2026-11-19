@@ -17,12 +17,12 @@
 	# the owners on top (force_owner)
 	cipher = "/var/lib/witness0";
 	trees = {
-		# what transmission seeds, of every kind. its directories can be
+		# what qbittorrent seeds, of every kind. its directories can be
 		# passed through (771), so jellyfin reaches video/ and lists nothing
-		seed = { at = "/srv/seed"; owner = "${toString uid.transmission}:${toString gid.seed}";
+		seed = { at = "/srv/seed"; owner = "${toString uid.qbittorrent}:${toString gid.seed}";
 			modes = [ "file_mode=0660" "dir_mode=0771" ]; };
 		# what kino links to, readable by kino
-		video = { at = "/srv/seed/video"; owner = "${toString uid.transmission}:${toString gid.kino}";
+		video = { at = "/srv/seed/video"; owner = "${toString uid.qbittorrent}:${toString gid.kino}";
 			modes = [ "file_mode=0640" "dir_mode=0750" ]; };
 		# jellyfin's libraries, mostly links into seed/video
 		kino = { at = "/srv/kino"; owner = "0:${toString gid.kino}";
@@ -33,13 +33,14 @@
 	} // lib.genAttrs [ "manga" "comics" "books" ] (kind: {
 		# what kavita reads (lemma/shelf.nix), each kind its own tree, readable
 		# by shelf and by nobody else, as video is by kino
-		at = "/srv/seed/${kind}"; owner = "${toString uid.transmission}:${toString gid.shelf}";
+		at = "/srv/seed/${kind}"; owner = "${toString uid.qbittorrent}:${toString gid.shelf}";
 		modes = [ "file_mode=0640" "dir_mode=0750" ];
 	});
-	uid.transmission = config.ids.uids.transmission;
+	uid.qbittorrent = 1986;
 	# fixed, since force_owner takes numbers: the ones nixos gave seed and
 	# kino when they were first made, which it won't change afterwards, and
-	# one for shelf above nixos' range for groups it numbers itself
+	# for shelf and qbittorrent, which nixos has no number for, ones above
+	# the range nixos numbers system users and groups in itself
 	gid = { seed = 983; kino = 984; shelf = 1985; };
 
 	# smb 3.1.1, encrypted (seal) on the wire too. symlinks are stored as
@@ -82,6 +83,7 @@ in {
 	users.groups.seed.gid = gid.seed;
 	users.groups.kino.gid = gid.kino;
 	users.groups.shelf.gid = gid.shelf;
+	users.users.qbittorrent.uid = uid.qbittorrent;
 	users.users.lux.extraGroups = [ "seed" "kino" "shelf" ];
 	users.users.jellyfin.extraGroups = [ "kino" ];
 

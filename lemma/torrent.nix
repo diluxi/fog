@@ -1,10 +1,18 @@
 { config, lib, pkgs, ... }: let
-	# transmission and prowlarr, one host: transmission at its own
-	# /transmission/, prowlarr under /prowlarr
+	# qbittorrent's interface (qui) and prowlarr, one host: qui at its
+	# root, prowlarr under /prowlarr
 	seed = "seed.amartia.online";
+	auth = "auth.amartia.online";
 	netns = "/run/netns/airvpn";
-	rpc = 9091; # inside the namespace
-	proxy = 9092; # outside it, for caddy (authelia has 9091) and the vpn
+	webui = 8080; # qbittorrent's web api, inside the namespace
+	proxy = 9092; # outside it, for qui and the vpn (authelia has 9091)
+	quiPort = 7476;
+
+	# a directory under /srv/seed per kind, each a category of qbittorrent's
+	# that saves there. video is what kino links, manga, comics and books
+	# what the shelf links (lemma/box.nix, lemma/odos.nix)
+	kinds = [ "video" "audio" "books" "comics" "manga" "other" ];
+	qbittorrentConfig = "/var/lib/qBittorrent/qBittorrent/config";
 
 	# placeholder until the encrypted secret is pasted in its place
 	todo = name: how: throw ''
@@ -123,15 +131,14 @@
 		conf DNS | tr , '\n' | sed 's/^/nameserver /' >${run}/resolv.conf
 		chmod 644 ${run}/resolv.conf
 
-		# the account's forwarded port, for transmission to listen on
-		jq -n --rawfile p "$CREDENTIALS_DIRECTORY/port" \
-			'{"peer-port": ($p | gsub("\\s"; "") | tonumber)}' >${run}/transmission.json
+		# the account's forwarded port, for qbittorrent to listen on
+		tr -d '[:space:]' <"$CREDENTIALS_DIRECTORY/port" >${run}/port
 
 		connect
 	'';
 
 	# another server without tearing the namespace down: only the peer's
-	# endpoint changes, so transmission keeps running and reconnects
+	# endpoint changes, so qbittorrent keeps running and reconnects
 	switch = pkgs.writeShellScript "airvpn-switch" ''
 		${common}
 		${refresh}
@@ -151,13 +158,30 @@
 	};
 
 	# prowlarr, the indexers' search, inside too: trackers see one address
-	# for searching and announcing, and it hands torrents to transmission
-	# at 127.0.0.1:${toString rpc} there
+	# for searching and announcing, and it hands torrents to qbittorrent
+	# at 127.0.0.1:${toString webui} there
 	prowlarrBase = "/prowlarr";
 	prowlarrPort = 9696; # inside the namespace
 	prowlarrProxy = 9697; # outside it, for caddy, the vpn and whatever searches through it
 
 	tools = with pkgs; [ iproute2 iputils wireguard-tools jq curl coreutils gnused gnugrep ];
+
+	# after the module has put qBittorrent.conf in place: the forwarded port
+	# in it, and the categories, declared ones over what the ui added
+	qbittorrentPrepare = pkgs.writeShellScript "qbittorrent-prepare" ''
+		set -euo pipefail
+		dir=${qbittorrentConfig}
+		${pkgs.gnused}/bin/sed -i "s/@port@/$(cat ${run}/port)/" $dir/qBittorrent.conf
+		[ -s $dir/categories.json ] || echo '{}' >$dir/categories.json
+		${pkgs.jq}/bin/jq --argjson want ${lib.escapeShellArg (builtins.toJSON
+			(lib.genAttrs kinds (kind: { save_path = "/srv/seed/${kind}"; })))} \
+			'. * $want' $dir/categories.json >$dir/categories.json.new
+		mv $dir/categories.json.new $dir/categories.json
+	'';
+
+	# qui's client secret, made on lemma0 with its pbkdf2 digest beside it:
+	# qui reads the secret, authelia only the digest
+	quiOidc = config.crypt.generated.qui-oidc.path;
 in {
 	# the device's wg-quick config from airvpn's client area (config
 	# generator, wireguard, any server): its keys and tunnel addresses
@@ -229,76 +253,145 @@ in {
 		};
 	};
 
-	services.transmission = {
+	services.qbittorrent = {
 		enable = true;
-		credentialsFile = "${run}/transmission.json";
-		package = pkgs.transmission_4;
-		settings = {
-			# everything goes to witness0 (lemma/box.nix), partial torrents too,
-			# so transmission can't fill lemma0's own disk, which the databases
-			# of every other service live on. pick a subdirectory per kind when
-			# adding a torrent; video/ is the one kino can link to
-			download-dir = "/srv/seed";
-			incomplete-dir-enabled = false;
-			# and nothing reserved ahead: transmission's default preallocation
-			# ("sparse") still calls fallocate, which takes each file's whole
-			# size at once. files grow as pieces come in, holes cost nothing
-			preallocation = 0;
-			# pieces reach the box in larger writes, through gocryptfs and smb
-			cache-size-mb = 64;
-			rpc-bind-address = "127.0.0.1";
-			rpc-port = rpc;
-			# authelia stands in front; transmission only sees the proxy
-			rpc-authentication-required = false;
-			rpc-whitelist-enabled = true;
-			rpc-whitelist = "127.0.0.1";
-			rpc-host-whitelist-enabled = true;
-			rpc-host-whitelist = seed;
-			# the peer port is airvpn's forwarded one (credentialsFile), so
-			# peers reach us through it; upnp is for home routers
-			port-forwarding-enabled = false;
-			peer-port-random-on-start = false;
-			encryption = 1; # prefer encrypted peers
+		webuiPort = webui;
+		serverConfig = {
+			# qbittorrent-nox asks for this on a terminal otherwise
+			LegalNotice.Accepted = true;
+			BitTorrent.Session = {
+				# pread and pwrite, not mmap: libtorrent's default maps files,
+				# which over gocryptfs and smb stalls whatever touches them
+				DiskIOType = "Posix";
+				# everything goes to witness0 (lemma/box.nix), partial torrents
+				# too, so qbittorrent can't fill lemma0's own disk, which every
+				# other service's databases live on; by category, else other/
+				DefaultSavePath = "/srv/seed/other";
+				TempPathEnabled = false;
+				# and nothing reserved ahead: files grow as pieces come in
+				Preallocation = false;
+				# a torrent goes where its category says, and moves with it
+				DisableAutoTMMByDefault = false;
+				DisableAutoTMMTriggers = {
+					CategoryChanged = false;
+					CategorySavePathChanged = false;
+				};
+				# airvpn's forwarded port (qbittorrentPrepare), so peers reach us
+				Port = "@port@";
+			};
+			# upnp and nat-pmp are for home routers
+			Network.PortForwardingEnabled = false;
+			# only what reaches its loopback, where the proxy connects from:
+			# qui, and the vpn, where the wireguard key is the login
+			WebUI = {
+				Address = "127.0.0.1";
+				LocalHostAuth = false;
+			};
 		};
 	};
 
-	systemd.services.transmission = {
+	systemd.services.qbittorrent = {
 		unitConfig.RequiresMountsFor = [ "/srv/seed" ] ++ map (kind: "/srv/seed/${kind}") [ "video" "manga" "comics" "books" ];
 		bindsTo = [ "airvpn.service" ];
 		after = [ "airvpn.service" ];
-		serviceConfig = inside;
+		serviceConfig = inside // {
+			# the module's sandbox has a user namespace of its own, which can't
+			# join airvpn's network namespace
+			PrivateUsers = lib.mkForce false;
+			ExecStartPre = lib.mkAfter [ qbittorrentPrepare ];
+		};
 	};
 
-	# the web ui and rpc, carried out of the namespace: the socket is the
-	# host's, the proxy connects from inside. on loopback for caddy, and on
-	# lemma0's vpn addresses for apps like tremotesf, which can't get past
-	# authelia: there the wireguard key is the login. those addresses come
-	# with wg-portal's interfaces, so binding mustn't wait for them
-	systemd.sockets.transmission-rpc = {
+	# its web api, carried out of the namespace: the socket is the host's,
+	# the proxy connects from inside, so qbittorrent sees loopback. for qui
+	# on lemma0's loopback, and on lemma0's vpn addresses for apps, where
+	# the wireguard key is the login. those addresses come with wg-portal's
+	# interfaces, so binding mustn't wait for them
+	systemd.sockets.qbittorrent-proxy = {
 		wantedBy = [ "sockets.target" ];
 		listenStreams = [ "127.0.0.1:${toString proxy}" ]
 			++ config.vpn.roles.torrent.listen proxy
 			++ config.vpn.roles.admin.listen proxy;
 		socketConfig.FreeBind = true;
 	};
-	systemd.services.transmission-rpc = {
+	systemd.services.qbittorrent-proxy = {
 		# stopped with the socket: a socket won't start while its service
 		# runs, so a changed socket (new addresses) would fail on switch
-		partOf = [ "transmission-rpc.socket" ];
-		requires = [ "transmission.service" ];
+		partOf = [ "qbittorrent-proxy.socket" ];
+		requires = [ "qbittorrent.service" ];
 		bindsTo = [ "airvpn.service" ];
-		after = [ "transmission.service" "airvpn.service" ];
+		after = [ "qbittorrent.service" "airvpn.service" ];
 		serviceConfig = {
-			ExecStart = "${config.systemd.package}/lib/systemd/systemd-socket-proxyd 127.0.0.1:${toString rpc}";
+			ExecStart = "${config.systemd.package}/lib/systemd/systemd-socket-proxyd 127.0.0.1:${toString webui}";
 			NetworkNamespacePath = netns;
 			DynamicUser = true;
 		};
 	};
 
+	# qui, qbittorrent's interface, on the host: it only talks to the
+	# proxy. logins through authelia, for torrent with a second factor; qui
+	# has one account, and any login authelia lets through is it
+	services.qui = {
+		enable = true;
+		secretFile = config.crypt.generated.qui-session.path;
+		settings = {
+			host = "127.0.0.1";
+			port = quiPort;
+			oidcEnabled = true;
+			oidcIssuer = "https://${auth}";
+			oidcClientId = "qui";
+			oidcRedirectUrl = "https://${seed}/api/auth/oidc/callback";
+			oidcDisableBuiltInLogin = true;
+			sessionCookieSecure = true;
+			# nothing from the host to trackers' sites or to qui's makers
+			trackerIconsFetchEnabled = false;
+			checkForUpdates = false;
+			disableSelfUpdate = true;
+		};
+	};
+	systemd.services.qui.serviceConfig = {
+		LoadCredential = [ "oidc:${quiOidc}" ];
+		Environment = [ "QUI__OIDC_CLIENT_SECRET_FILE=%d/oidc" ];
+	};
+	crypt.generated = {
+		qui-session = {};
+		qui-oidc.script = ''
+			${pkgs.authelia}/bin/authelia crypto hash generate pbkdf2 \
+				--variant sha512 --random --random.length 64 \
+				--random.charset alphanumeric >$out.both
+			sed -n 's/^Random Password: //p' $out.both | tr -d '\n' >$out
+			sed -n 's/^Digest: //p' $out.both | tr -d '\n' >$out.digest
+			rm $out.both
+		'';
+	};
+	services.authelia.instances.main.settings.identity_providers.oidc = {
+		authorization_policies.seed = {
+			default_policy = "deny";
+			rules = [{ policy = "two_factor"; subject = "group:torrent"; }];
+		};
+		clients = [{
+			client_id = "qui";
+			client_name = "seed";
+			# the template filter (on for the oidc key) reads the digest
+			client_secret = ''{{ mustEnv "CREDENTIALS_DIRECTORY" | printf "%s/qui-oidc-digest" | secret }}'';
+			authorization_policy = "seed";
+			require_pkce = true;
+			pkce_challenge_method = "S256";
+			redirect_uris = [ "https://${seed}/api/auth/oidc/callback" ];
+			scopes = [ "openid" "profile" "email" ];
+			grant_types = [ "authorization_code" ];
+			response_types = [ "code" ];
+			token_endpoint_auth_method = "client_secret_basic";
+		}];
+	};
+	systemd.services.authelia-main.serviceConfig.LoadCredential = [
+		"qui-oidc-digest:${quiOidc}.digest"
+	];
+
 	# who may: members of `torrent`, added in lldap's ui
 	lldap.groups = [ "torrent" ];
-	# and from their own devices, over the vpn, transmission and prowlarr
-	# and nothing else
+	# and from their own devices, over the vpn, qbittorrent's api and
+	# prowlarr, and nothing else
 	vpn.roles.torrent = {
 		n = 2;
 		group = "torrent";
@@ -313,26 +406,28 @@ in {
 		{ domain = seed; subject = [ "group:torrent" ]; policy = "two_factor"; }
 	];
 
-	# polling without any authelia session (an app pointed here, a tab
-	# from before a login) gets a 401 from caddy, without asking authelia,
-	# which would log every one. pages still go to authelia, for its login
+	# qui at the root, logging in through authelia itself; prowlarr behind
+	# authelia's forward_auth. prowlarr's polling without any authelia
+	# session (a tab from before a login) gets a 401 from caddy, without
+	# asking authelia, which would log every one
 	services.caddy.virtualHosts.${seed}.extraConfig = ''
 		@anonymous {
-			path /transmission/rpc ${prowlarrBase}/api/* ${prowlarrBase}/signalr/*
+			path ${prowlarrBase}/api/* ${prowlarrBase}/signalr/*
 			not header Cookie *authelia_session=*
 		}
 		handle @anonymous {
 			respond 401
 		}
-		handle {
+		@prowlarr path ${prowlarrBase} ${prowlarrBase}/*
+		handle @prowlarr {
 			forward_auth 127.0.0.1:9091 {
 				uri /api/authz/forward-auth
 				copy_headers Remote-User Remote-Groups Remote-Email Remote-Name
 			}
-			redir / /transmission/web/
-			@prowlarr path ${prowlarrBase} ${prowlarrBase}/*
-			reverse_proxy @prowlarr 127.0.0.1:${toString prowlarrProxy}
-			reverse_proxy 127.0.0.1:${toString proxy}
+			reverse_proxy 127.0.0.1:${toString prowlarrProxy}
+		}
+		handle {
+			reverse_proxy 127.0.0.1:${toString quiPort}
 		}
 	'';
 
@@ -344,7 +439,7 @@ in {
 				port = prowlarrPort;
 				urlbase = prowlarrBase;
 			};
-			# authelia stands in front, as for transmission
+			# authelia stands in front
 			auth = { method = "External"; required = "DisabledForLocalAddresses"; };
 		};
 		# its api key, made on lemma0, for what searches through it
@@ -359,10 +454,11 @@ in {
 		serviceConfig = inside;
 	};
 
-	# transmission as its download client, for what's grabbed from its own
-	# searches. a category is a directory under /srv/seed, by what the
-	# indexer says a release is (newznab's numbers, with their subcategories);
-	# anything else goes to other/
+	# qbittorrent as its download client, for what's grabbed from its own
+	# searches. a category is qbittorrent's, which saves to a directory under
+	# /srv/seed, by what the indexer says a release is (newznab's numbers,
+	# with their subcategories); anything else goes to other/. transmission,
+	# its client before, goes
 	systemd.services.prowlarr-clients = let
 		kinds = [
 			{ clientCategory = "video"; categories = [ 2000 5000 ]; } # films, tv
@@ -371,17 +467,16 @@ in {
 		];
 		fields = {
 			host = "127.0.0.1";
-			port = rpc;
-			urlBase = "/transmission/";
+			port = webui;
 			category = "other";
 		};
 	in {
-		description = "prowlarr's download client, transmission";
+		description = "prowlarr's download client, qbittorrent";
 		wantedBy = [ "multi-user.target" ];
 		requires = [ "prowlarr-proxy.socket" ];
-		# saving it tests it, so transmission must answer
-		wants = [ "transmission.service" ];
-		after = [ "prowlarr-proxy.socket" "transmission.service" ];
+		# saving it tests it, so qbittorrent must answer
+		wants = [ "qbittorrent.service" ];
+		after = [ "prowlarr-proxy.socket" "qbittorrent.service" ];
 		partOf = [ "prowlarr.service" ];
 		path = with pkgs; [ curl jq ];
 		serviceConfig = {
@@ -409,11 +504,13 @@ in {
 			want=$(get downloadclient/schema | jq -c \
 				--argjson fields ${lib.escapeShellArg (builtins.toJSON fields)} \
 				--argjson kinds ${lib.escapeShellArg (builtins.toJSON kinds)} '
-				.[] | select(.implementation == "Transmission")
-				| .name = "Transmission" | .enable = true | .categories = $kinds
+				.[] | select(.implementation == "QBittorrent")
+				| .name = "qBittorrent" | .enable = true | .categories = $kinds
 				| .fields |= map((.name // "") as $n
 					| if $fields | has($n) then .value = $fields[$n] else . end)')
-			id=$(get downloadclient | jq '.[] | select(.name == "Transmission") | .id')
+			old=$(get downloadclient | jq '.[] | select(.name == "Transmission") | .id')
+			[ -z "$old" ] || curl -sSf -K "$rc" -X DELETE "$api/downloadclient/$old" >/dev/null
+			id=$(get downloadclient | jq '.[] | select(.name == "qBittorrent") | .id')
 			if [ -n "$id" ]; then
 				jq --argjson id "$id" '.id = $id' <<<"$want" | send PUT "downloadclient/$id"
 			else
@@ -422,7 +519,7 @@ in {
 		'';
 	};
 
-	# its web ui and api, carried out of the namespace like transmission's,
+	# its web ui and api, carried out of the namespace like qbittorrent's,
 	# to the same places: on the vpn its own login is off too, and the
 	# wireguard key is the login
 	systemd.sockets.prowlarr-proxy = {
@@ -433,7 +530,7 @@ in {
 		socketConfig.FreeBind = true;
 	};
 	systemd.services.prowlarr-proxy = {
-		# stopped with the socket, as transmission-rpc is
+		# stopped with the socket, as qbittorrent-proxy is
 		partOf = [ "prowlarr-proxy.socket" ];
 		requires = [ "prowlarr.service" ];
 		bindsTo = [ "airvpn.service" ];

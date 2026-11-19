@@ -118,12 +118,21 @@ switched to, so a rewrite stops deploys until its state is fixed by hand.
   `xmpp`: state in sqlite, conference/pubsub/upload components, certificates
   from caddy, and FAST tokens, since LDAP auth only allows PLAIN and
   Conversations requires channel binding.
-- transmission (`lemma/torrent.nix`) at seed.amartia.online (`/` goes to
-  `/transmission/web/`) for the lldap group `torrent`, inside a network
-  namespace whose only way out is AirVPN's WireGuard (Mullvad until
-  2026-11, which forwards no ports). The
+- qBittorrent (`lemma/torrent.nix`, Transmission until 2026-11) for the
+  lldap group `torrent`, inside a network namespace whose only way out is
+  AirVPN's WireGuard (Mullvad until 2026-11, which forwards no ports). Its
+  interface is qui at seed.amartia.online, logging in through Authelia
+  (client `qui`, two factors) and talking to qBittorrent's API through a
+  socket proxy at 127.0.0.1:9092, which is also on the torrent and admin
+  roles' VPN addresses for apps. qBittorrent sees the proxy as loopback,
+  where it asks no login (`LocalHostAuth=false`). Its disk I/O is POSIX
+  (pread/pwrite; mmap over gocryptfs and SMB stalls), and its categories
+  (video, audio, books, comics, manga, other) save to `/srv/seed/<name>`,
+  declared in `categories.json` at every start over what the UI added;
+  a torrent moves with its category. `qBittorrent.conf` is written from
+  Nix at every start, so settings changed in the UI don't last. The
   secrets are the device's wg-quick config from AirVPN's generator and the
-  account's forwarded port, which becomes Transmission's peer port. Every
+  account's forwarded port, which becomes qBittorrent's port. Every
   AirVPN server shares one key, so lemma0 picks a server's endpoint at
   runtime from the public status API, least loaded first, narrowed by
   `/var/lib/airvpn/prefer` (names, country codes or cities).
@@ -134,9 +143,9 @@ switched to, so a rewrite stops deploys until its state is fixed by hand.
   generated (`crypt.generated.prowlarr-api`) and reachable on the host at
   127.0.0.1:9697 and over the VPN (torrent and admin roles) at
   10.10.2.1:9697, where the WireGuard key is the login. Caddy answers
-  polling without an Authelia cookie (the RPC, prowlarr's API) with a 401
-  itself, so Authelia doesn't log each one. `prowlarr-clients` declares
-  Transmission (127.0.0.1:9091 from inside) as its download client through
+  polling without an Authelia cookie (prowlarr's API) with a 401 itself,
+  so Authelia doesn't log each one. `prowlarr-clients` declares
+  qBittorrent (127.0.0.1:8080 from inside) as its download client through
   that API; a release's category picks its directory under /srv/seed
   (video, audio, books, else other).
 - Invitations (`lemma/invite.nix`, Go in `lemma/invite/`): lldap_admin
@@ -158,7 +167,8 @@ switched to, so a rewrite stops deploys until its state is fixed by hand.
   gocryptfs key, `lemma/witness0-key.asc`: everything on the box is
   encrypted (names and contents; sizes show), each tree its own gocryptfs
   directory under srv/cipher/, mounted root-only at /var/lib/witness0/<tree>
-  and decrypted at: `/srv/seed`, what transmission seeds, sorted by kind;
+  and decrypted at: `/srv/seed`, what qBittorrent (uid 1986) seeds, by
+  kind;
   `/srv/seed/video`, what kino may link to; `/srv/seed/{manga,comics,books}`,
   what the group `shelf` (gid 1985, Kavita's) may read, one tree each;
   `/srv/kino`, Jellyfin's libraries, and `/srv/shelf`, Kavita's (group
@@ -173,7 +183,7 @@ switched to, so a rewrite stops deploys until its state is fixed by hand.
   interface (`trusted`, `tcp`). `wg-portal-roles` declares the interfaces
   through wg-portal's API, with keys from `crypt.generated.vpn-fog-<name>`.
   Roles: `admin` (lldap_admin, everything, at 10.10.1.1), `torrent` (the
-  RPC and web UI on 9092, prowlarr on 9697) and `ssh` (port 22, for the
+  qBittorrent's API on 9092, prowlarr on 9697) and `ssh` (port 22, for the
   lldap group `ssh`). `fog` and `dn42` stay networkd's.
 - sshd is only reachable over the VPN (since 2026-11-16), keys only, no
   keyboard-interactive. `fog`'s default host is 10.10.1.1, the admin role's
@@ -209,7 +219,7 @@ switched to, so a rewrite stops deploys until its state is fixed by hand.
   the same 30 s of both, which must win by more than a sixth. The losers
   are recorded in `/var/lib/odos/seconds` and not read again while the
   winner stays linked; if it goes, they compete again.
-  Runs on Transmission's done-hook (a marker in `/run/odos`, through a path
+  Runs on qBittorrent's run-on-finish (a marker in `/run/odos`, through a path
   unit), daily, and by hand with `systemctl start odos`; `odos --dry-run`
   shows what it would do. It tells Jellyfin which folders changed with the
   generated key `crypt.generated.jellyfin-api`, which kino's pre-start

@@ -7,11 +7,11 @@
 	shelf = "/srv/shelf";
 	shelves = { manga = "Manga"; comics = "Comics"; books = "Books"; };
 
-	# finished torrents leave a marker here, which only says to run. transmission
-	# runs in airvpn's namespace with its own root, but has the host's /run
+	# finished torrents leave a marker here, which only says to run.
+	# qbittorrent runs in airvpn's namespace, but has the host's /run
 	spool = "/run/odos";
 	torrentDone = pkgs.writeShellScript "torrent-done" ''
-		: >${spool}/"$TR_TORRENT_HASH"
+		: >${spool}/"$1"
 	'';
 
 	# the rules, as odos reads them: s-expressions
@@ -78,12 +78,14 @@ in {
 			Films = { type = "movies"; paths = [ "${kino}/Films" ]; };
 		};
 
-		services.transmission.settings = {
-			script-torrent-done-enabled = true;
-			script-torrent-done-filename = torrentDone;
+		# qbittorrent's "run external program on torrent finished", with the
+		# torrent's id (%K: its hash, v1 or v2)
+		services.qbittorrent.serverConfig.AutoRun = {
+			enabled = true;
+			program = "${torrentDone} %K";
 		};
-		# transmission makes the markers, odos (in kino) takes them away
-		systemd.tmpfiles.rules = [ "d ${spool} 2770 transmission kino -" ];
+		# qbittorrent makes the markers, odos (in kino) takes them away
+		systemd.tmpfiles.rules = [ "d ${spool} 2770 qbittorrent kino -" ];
 
 		systemd.services.odos = {
 			description = "link finished torrents into kino's libraries";

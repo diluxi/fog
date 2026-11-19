@@ -100,7 +100,8 @@ switched to, so a rewrite stops deploys until its state is fixed by hand.
   only), so restarting Authelia logs nobody out.
 - Stalwart (`lemma/mail.nix`) on mx.amartia.online for amartia.online and
   cpli.dev, with autoconfig. Accounts come from LLDAP, aliases from the table
-  in `mail.nix`. SPF, DKIM, DMARC and rDNS pass.
+  in `mail.nix`. SPF, DKIM, DMARC and rDNS pass. ManageSieve on 4190
+  (STARTTLS) for each account's own Sieve filters, from a client.
 - `crypt.secrets.<name>.services` restarts the services that read a secret
   when it changes.
 - ecdo (`lemma/ecdo.nix`) publishes websites at runtime. Each host is a nix

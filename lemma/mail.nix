@@ -113,6 +113,9 @@ in {
 					protocol = "imap";
 					tls.implicit = true;
 				};
+				# sieve scripts, each account's own (mail filters), from a client
+				# like thunderbird's sievereloaded: starttls, as rfc 5804 has it
+				managesieve = { bind = [ "[::]:4190" ]; protocol = "managesieve"; };
 				# web admin, jmap and account pages, behind caddy
 				http = { bind = [ "127.0.0.1:8080" ]; protocol = "http"; };
 			};
@@ -186,7 +189,7 @@ in {
 		};
 	};
 
-	networking.firewall.allowedTCPPorts = [ 25 465 587 993 ];
+	networking.firewall.allowedTCPPorts = [ 25 465 587 993 4190 ];
 
 	# a mail user's address, set at signup (lemma/invite.nix); lldap's own
 	# mail is their contact address

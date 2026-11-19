@@ -145,7 +145,7 @@ switched to, so a rewrite stops deploys until its state is fixed by hand.
   10.10.2.1:9697, where the WireGuard key is the login. Caddy answers
   polling without an Authelia cookie (prowlarr's API) with a 401 itself,
   so Authelia doesn't log each one. `prowlarr-clients` declares
-  qBittorrent (127.0.0.1:8080 from inside) as its download client through
+  qBittorrent (127.0.0.1:9092 from inside) as its download client through
   that API; a release's category picks its directory under /srv/seed
   (video, audio, books, else other).
 - Invitations (`lemma/invite.nix`, Go in `lemma/invite/`): lldap_admin

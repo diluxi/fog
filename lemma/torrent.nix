@@ -4,8 +4,11 @@
 	seed = "seed.amartia.online";
 	auth = "auth.amartia.online";
 	netns = "/run/netns/airvpn";
-	webui = 8080; # qbittorrent's web api, inside the namespace
-	proxy = 9092; # outside it, for qui and the vpn (authelia has 9091)
+	# qbittorrent's web api inside the namespace, and its proxy outside it,
+	# for qui and the vpn (authelia has 9091). one port: qbittorrent refuses
+	# a request whose host header names a port other than its own
+	webui = 9092;
+	proxy = webui;
 	quiPort = 7476;
 
 	# a directory under /srv/seed per kind, each a category of qbittorrent's

@@ -65,6 +65,12 @@
 			# mount hands gocryptfs everything but nofail, and gocryptfs refuses
 			# what it doesn't know, like _netdev. the cifs mount beneath has it
 			"passfile=${key}" "allow_other" "force_owner=${t.owner}" "nofail"
+			# no fallocate before each write: over smb every one is a round trip,
+			# taken under the file's lock, so a torrent's small writes went one
+			# at a time at some 300 ms each (fio, 16k random: 54 KiB/s through
+			# gocryptfs, 436 MiB/s to the smb mount beneath). what it guards
+			# against is a full box corrupting a file's last block mid-write
+			"noprealloc"
 			"x-systemd.requires-mounts-for=${cipher}/${name}"
 			"x-systemd.requires=witness0-init.service" "x-systemd.after=witness0-init.service"
 		];

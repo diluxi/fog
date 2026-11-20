@@ -258,7 +258,12 @@ it didn't take it."
 ;;; tmdb id, which jellyfin reads as well
 
 (defvar *ids* (make-hash-table :test 'equal)
-  "kind|title|year to (id name year), or :none when tmdb doesn't know it.")
+  "kind|title|year to (id name year), or (:none . when) when tmdb didn't know
+it, a universal time.")
+
+(defparameter +retry+ (* 24 60 60)
+  "How long tmdb not knowing a title is believed: it learns new shows, and a
+lookup can fail.")
 
 (defun ids-file () (join *state* "ids"))
 
@@ -269,14 +274,17 @@ it didn't take it."
             while line
             do (destructuring-bind (key id &optional name year)
                    (uiop:split-string line :separator '(#\Tab))
+                 ;; a miss without its time is from before they had one
                  (setf (gethash key *ids*)
-                       (if (string= id "-") :none (list id name (number-in year)))))))))
+                       (if (string= id "-")
+                           (cons :none (or (number-in name) 0))
+                           (list id name (number-in year)))))))))
 
 (defun write-ids ()
   (write-lines (ids-file)
                (loop for key being the hash-keys of *ids* using (hash-value v)
-                     collect (if (eq v :none)
-                                 (format nil "~a~c-" key #\Tab)
+                     collect (if (eq (car v) :none)
+                                 (format nil "~a~c-~c~d" key #\Tab #\Tab (cdr v))
                                  (destructuring-bind (id name year) v
                                    (format nil "~a~c~a~c~a~c~@[~d~]" key #\Tab id #\Tab name #\Tab year))))))
 
@@ -312,14 +320,15 @@ year) of the first tmdb result, of YEAR if one is; :none for nothing;
   (let ((key (if tmdb
                  (format nil "~(~a~)|tmdb:~a" kind tmdb)
                  (format nil "~(~a~)|~a|~@[~d~]" kind (fold title) year))))
-    (multiple-value-bind (known there) (gethash key *ids*)
-      (if there
-          known
-          (let ((found (if *key* (look-up kind title year tmdb) :none)))
-            ;; without a key, guessit's title, but nothing to remember
-            (unless (or (eq found :unreachable) (null *key*))
-              (setf (gethash key *ids*) found))
-            found)))))
+    (let ((known (gethash key *ids*)))
+      (cond ((and known (not (eq (car known) :none))) known)
+            ((and known (< (- (get-universal-time) (cdr known)) +retry+)) :none)
+            (t (let ((found (if *key* (look-up kind title year tmdb) :none)))
+                 ;; without a key, guessit's title, but nothing to remember
+                 (unless (or (eq found :unreachable) (null *key*))
+                   (setf (gethash key *ids*)
+                         (if (eq found :none) (cons :none (get-universal-time)) found)))
+                 found))))))
 
 ;;; where things go
 

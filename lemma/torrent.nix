@@ -269,8 +269,13 @@ in {
 			LegalNotice.Accepted = true;
 			BitTorrent.Session = {
 				# pread and pwrite, not mmap: libtorrent's default maps files,
-				# which over gocryptfs and smb stalls whatever touches them
-				DiskIOType = "Posix";
+				# which over gocryptfs and smb stalls whatever touches them. and
+				# not "posix" either, libtorrent's single-threaded backend, which
+				# reads and writes in its network thread, so every 23 ms read
+				# from witness0 held up every connection: one ceiling near 20
+				# mbit for all torrents together. this is the threaded backend
+				# with mmap turned off, so the threads below apply
+				DiskIOType = "SimplePreadPwrite";
 				# and many at once: a read from witness0 takes some 23 ms, so
 				# throughput is concurrency (fio, 16k random reads: 0.7 MiB/s
 				# with one, 17 with ten, qbittorrent's default, 65 with 32)

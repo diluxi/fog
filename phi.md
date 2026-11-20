@@ -126,8 +126,10 @@ switched to, so a rewrite stops deploys until its state is fixed by hand.
   (client `qui`, two factors) and talking to qBittorrent's API through a
   socket proxy at 127.0.0.1:9092, which is also on the torrent and admin
   roles' VPN addresses for apps. qBittorrent sees the proxy as loopback,
-  where it asks no login (`LocalHostAuth=false`). Its disk I/O is POSIX
-  (pread/pwrite; mmap over gocryptfs and SMB stalls), and its categories
+  where it asks no login (`LocalHostAuth=false`). Its disk I/O is "simple
+  pread/pwrite": libtorrent's threaded backend without mmap (mmap over
+  gocryptfs and SMB stalls; "POSIX" is a single-threaded backend that
+  blocks every connection on each disk access), and its categories
   (video, audio, books, comics, manga, other) save to `/srv/seed/<name>`,
   declared in `categories.json` at every start over what the UI added;
   a torrent moves with its category. `qBittorrent.conf` is written from

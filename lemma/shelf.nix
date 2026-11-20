@@ -170,6 +170,17 @@ in {
 	};
 
 	services.authelia.instances.main.settings.identity_providers.oidc = {
+		# kavita refreshes its token, on the server, when one of a session's
+		# requests finds it expired; and once a refresh fails (a rotated or
+		# expired refresh token: authelia's last 90 minutes), every request
+		# of that session tries again, as kavita 0.9.1's backoff never holds.
+		# a page is a hundred requests, so a hundred token requests. the
+		# refresh only syncs settings from the id token, which kavita here
+		# doesn't, so its tokens last long enough that it seldom refreshes
+		lifespans.custom.kavita = {
+			access_token = "30d";
+			refresh_token = "60d";
+		};
 		authorization_policies.shelf = {
 			default_policy = "deny";
 			rules = [{ policy = "two_factor"; subject = "group:shelf"; }];
@@ -177,6 +188,7 @@ in {
 		clients = [{
 			client_id = "kavita";
 			client_name = "shelf";
+			lifespan = "kavita";
 			# the template filter (on for the oidc key) reads the digest
 			client_secret = ''{{ mustEnv "CREDENTIALS_DIRECTORY" | printf "%s/kavita-oidc-digest" | secret }}'';
 			authorization_policy = "shelf";

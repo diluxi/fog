@@ -388,38 +388,97 @@ first's title and year, as guessit read them."
               name))))
 
 ;;; rules: where a person says a torrent's folder or file is what, for what
-;;; no name says well enough. one is (path :film id) or (path :show id
-;;; :episodes ((from to season offset parts) ...)): episode n of the files,
-;;; from FROM to TO (or on), is episode n+OFFSET of SEASON; or with PARTS,
-;;; part n-FROM+1 of the one episode FROM+OFFSET, which jellyfin plays as one
-;;; (an hour-long premiere in two files). paths are relative to the seed
-;;; tree, and the longest that holds a file is its rule
+;;; no name says well enough. one is
+;;;
+;;;   (path :film id)
+;;;   (path :show id): the show's, in the seasons and episodes the names say
+;;;   (path :show id :episodes ((from to season offset parts) ...)): episode
+;;;     n of the files, from FROM to TO (or on), is episode n+OFFSET of
+;;;     SEASON; or with PARTS, part n-FROM+1 of the one episode FROM+OFFSET,
+;;;     which jellyfin plays as one (an hour-long premiere in two files)
+;;;   (path :show id :episode (season number)): one file, that episode
+;;;   (path :series "Name"): a shelf's files, that series
+;;;   (path :ignore t): never linked (openings, endings, extras)
+;;;   (path :prefer t): its copies win over any other copy of the same
+;;;     episode or film, whatever ffprobe says
+;;;
+;;; :prefer goes with any of the others. a video's paths are relative to the
+;;; seed tree's video, a shelf's to the seed tree, starting with its tree's
+;;; name (manga/...). the longest path that holds a file is its rule: a
+;;; folder above it, the file itself, or the video whose subtitles it is
 
-(defvar *rules* '())
+(defvar *nix-rules* '() "The rules in *rules-file*, from nix.")
+(defvar *cli-rules* '() "The rules odos's command line added, kept in *state*.")
+(defvar *rules* '() "Both, the command line's first: of two for one path, theirs holds.")
+
+(defun read-forms (file)
+  (when (and file (eq (kind file) :file))
+    (with-open-file (in file :external-format :utf-8)
+      (let ((*read-eval* nil) (*package* (find-package :odos)))
+        (loop for form = (read in nil in) until (eq form in) collect form)))))
+
+(defun cli-rules-file () (join *state* "rules"))
 
 (defun read-rules ()
-  (setf *rules*
-        (when (and *rules-file* (eq (kind *rules-file*) :file))
-          (with-open-file (in *rules-file* :external-format :utf-8)
-            (let ((*read-eval* nil) (*package* (find-package :odos)))
-              (loop for form = (read in nil in) until (eq form in) collect form))))))
+  (setf *nix-rules* (read-forms *rules-file*)
+        *cli-rules* (read-forms (cli-rules-file))
+        *rules* (append *cli-rules* *nix-rules*)))
+
+(defun stem (name)
+  "NAME without its extension."
+  (let ((dot (position #\. name :from-end t)))
+    (if (and dot (> dot (1+ (or (position #\/ name :from-end t) -1))))
+        (subseq name 0 dot)
+        name)))
+
+(defun holds (prefix rel)
+  "Whether the rule's path PREFIX holds REL: is it, a folder above it, or a
+video whose subtitle it is (Show 01.mkv holds Show 01.en.srt)."
+  (flet ((starts (with)
+           (and (> (length rel) (length with)) (string= with rel :end2 (length with)))))
+    (or (string= rel prefix)
+        (and (starts prefix) (char= (char rel (length prefix)) #\/))
+        (and (member (extension prefix) +videos+ :test #'string=)
+             (member (extension rel) +subtitles+ :test #'string=)
+             (starts (stem prefix))
+             (char= (char rel (length (stem prefix))) #\.)
+             (not (find #\/ rel :start (length (stem prefix))))))))
 
 (defun longest-rule (rel rules)
-  "Of RULES, the one whose path is the longest that holds REL."
+  "Of RULES, the one whose path is the longest that holds REL; the first of
+the longest."
   (let (best)
     (dolist (r rules best)
-      (let ((prefix (first r)))
-        (when (and (or (string= rel prefix)
-                       (and (> (length rel) (length prefix))
-                            (string= prefix rel :end2 (length prefix))
-                            (char= (char rel (length prefix)) #\/)))
-                   (or (null best) (> (length prefix) (length (first best)))))
-          (setf best r))))))
+      (when (and (holds (first r) rel)
+                 (or (null best) (> (length (first r)) (length (first best)))))
+        (setf best r)))))
+
+(defun says (rule &rest keys)
+  "Whether RULE says any of KEYS."
+  (some (lambda (key) (getf (rest rule) key)) keys))
+
+(defun shelf-rule-p (rule)
+  "Whether RULE is for a shelf's files: its path starts with a tree's name."
+  (some (lambda (shelf) (holds (basename (car shelf)) (first rule))) *shelves*))
 
 (defun rule-for (path)
-  "The rule for a video, by its path under *video*."
+  "The rule that says what PATH, a video or a shelf's file, is; nil for none."
+  (let ((shelf (shelf-of path)))
+    (if shelf
+        (longest-rule (relative (dirname (car shelf)) path)
+                      (remove-if-not (lambda (r) (and (shelf-rule-p r) (says r :series :ignore)))
+                                     *rules*))
+        (longest-rule (relative *video* path)
+                      (remove-if (lambda (r) (or (shelf-rule-p r) (not (says r :film :show :ignore))))
+                                 *rules*)))))
+
+(defun ignored (path)
+  (says (rule-for path) :ignore))
+
+(defun preference (path)
+  "The rule that prefers the video PATH's copy, or nil."
   (longest-rule (relative *video* path)
-                (remove-if (lambda (r) (getf (rest r) :series)) *rules*)))
+                (remove-if-not (lambda (r) (and (not (shelf-rule-p r)) (says r :prefer))) *rules*)))
 
 (defun numbers (path guess)
   "The episode numbers PATH holds: guessit's, or the one before \" - \" in its
@@ -428,8 +487,13 @@ name (Owarimonogatari 2nd Season 01 - Mayoi Hell)."
       (let ((m (nth-value 1 (ppcre:scan-to-strings "(\\d{1,3}) - " (basename path)))))
         (and m (list (parse-integer (aref m 0)))))))
 
+(defun episode-place (folder name season episodes &optional part)
+  (values (format nil "~a/~a/Season ~2,'0d/~a S~2,'0dE~{~2,'0d~^-E~}~@[ - part~d~]"
+                  *shows* folder season name season episodes part)
+          (list* :episode (fold folder) season episodes (and part (list part)))))
+
 (defun place-by-rule (rule path guess shows films)
-  (destructuring-bind (prefix &key film show episodes) rule
+  (destructuring-bind (prefix &key film show episodes episode ignore &allow-other-keys) rule
     (declare (ignore prefix))
     (flet ((by-id (index kind id)
              (let ((found (identify kind nil nil id)))
@@ -437,9 +501,20 @@ name (Owarimonogatari 2nd Season 01 - Mayoi Hell)."
                      ((consp found) (known-folder index found))
                      (t (return-from place-by-rule
                           (values nil (format nil "tmdb doesn't know the rule's ~(~a~) ~a" kind id))))))))
-      (cond (film
+      (cond (ignore (values nil :ignored))
+            (film
              (let ((folder (by-id films :film film)))
                (values (format nil "~a/~a/~a" *films* folder folder) (list :film (fold folder)))))
+            ((and show episode)
+             (multiple-value-bind (folder name) (by-id shows :show show)
+               (episode-place folder name (first episode) (list (second episode)))))
+            ((and show (null episodes))
+             (let ((season (let ((v (field guess "season"))) (and (integerp v) v)))
+                   (ns (numbers path guess)))
+               (cond ((null ns) (values nil "no episode number for the rule"))
+                     ((null season) (values nil "no season in its name, nor in the rule"))
+                     (t (multiple-value-bind (folder name) (by-id shows :show show)
+                          (episode-place folder name season ns))))))
             (show
              (let* ((ns (numbers path guess))
                     (segment (and ns (find-if (lambda (seg)
@@ -456,9 +531,7 @@ name (Owarimonogatari 2nd Season 01 - Mayoi Hell)."
                                            (list (+ from offset))
                                            (mapcar (lambda (n) (+ n offset)) ns)))
                                   (part (and parts (1+ (- (first ns) from)))))
-                              (values (format nil "~a/~a/Season ~2,'0d/~a S~2,'0dE~{~2,'0d~^-E~}~@[ - part~d~]"
-                                              *shows* folder season name season eps part)
-                                      (list :episode (fold folder) season eps part)))))))))
+                              (episode-place folder name season eps part))))))))
             (t (values nil "a rule that says neither film nor show"))))))
 
 (defun title-and-year (guess)
@@ -466,6 +539,13 @@ name (Owarimonogatari 2nd Season 01 - Mayoi Hell)."
   (let ((title (let ((v (field guess "title"))) (and (stringp v) (clean v))))
         (year (let ((v (field guess "year"))) (and (integerp v) v))))
     (and title (string/= title "") (list title year))))
+
+(defun titles (guess alone)
+  "Who a file may be, (title year) each, first as GUESS has it, then as
+ALONE has it."
+  (remove-duplicates (remove nil (list (title-and-year guess) (title-and-year alone)))
+                     :test #'equal :from-end t
+                     :key (lambda (c) (list (fold (first c)) (second c)))))
 
 (defun place (path guess alone shows films)
   "Where PATH, which GUESS is of, goes, without its extension, and its key for
@@ -476,9 +556,7 @@ season and episode, GUESS's. SHOWS and FILMS index their roots' folders."
   (let ((rule (rule-for path)))
     (when rule
       (return-from place (place-by-rule rule path guess shows films))))
-  (let ((candidates (remove-duplicates (remove nil (list (title-and-year guess) (title-and-year alone)))
-                                       :test #'equal :from-end t
-                                       :key (lambda (c) (list (fold (first c)) (second c)))))
+  (let ((candidates (titles guess alone))
         (season (let ((v (field guess "season"))) (and (integerp v) v)))
         (episodes (remove-if-not #'integerp (fields guess "episode"))))
     (flet ((unknown ()
@@ -495,9 +573,7 @@ season and episode, GUESS's. SHOWS and FILMS index their roots' folders."
                  (t (multiple-value-bind (show name) (folder shows :show candidates)
                       (cond ((eq show :defer) (values nil :defer))
                             ((null show) (unknown))
-                            (t (values (format nil "~a/~a/Season ~2,'0d/~a S~2,'0dE~{~2,'0d~^-E~}"
-                                               *shows* show season name season episodes)
-                                       (list :episode (fold show) season episodes))))))))
+                            (t (episode-place show name season episodes)))))))
           ((member (field guess "type") '("movie" "episode") :test #'equal)
            (let ((film (folder films :film candidates)))
              (cond ((eq film :defer) (values nil :defer))
@@ -615,6 +691,14 @@ shorter; nil if ffprobe can't say."
                           (values win (format nil "~a at ~,1f Mbit/s ~:[stays behind~;over~] ~,1f Mbit/s"
                                               (getf a :name) (/ x 1000000) win (/ y 1000000)))))))))))
 
+(defun wins (new old)
+  "Whether the copy at NEW beats the one at OLD, and why: a rule's preference
+first, then which is better."
+  (let ((a (preference new)) (b (and (under *video* old) (preference old))))
+    (cond ((and a (not b)) (values t (format nil "a rule prefers it (~s)" (first a))))
+          ((and b (not a)) (values nil (format nil "a rule prefers the linked one (~s)" (first b))))
+          (t (better new old)))))
+
 ;;; the run
 
 (defstruct run
@@ -694,7 +778,7 @@ of the two is. Returns :linked, and the copy it replaced if it did, or
                 (equal (torrent there) (torrent target)))
            (note-unsure run target (format nil "~a has another file of this torrent (read wrong?)" dest))
            nil)
-          (t (multiple-value-bind (win why) (better target there)
+          (t (multiple-value-bind (win why) (wins target there)
                (cond (win
                       ;; the copy that was linked is a second now, with its
                       ;; subtitles
@@ -737,6 +821,7 @@ top, or nothing for a file there on its own."
                  (multiple-value-bind (stem key) (place path g a shows films)
                    (cond
                      ((eq key :defer) (incf (run-deferred run)))
+                     ((eq key :ignored))
                      ((null stem) (note-unsure run path key))
                      (t
                        (let ((dest (format nil "~a.~a" stem (extension path))))
@@ -807,10 +892,9 @@ when nothing's left (Volume 01)."
   "The series PATH is of: the rule's, if a rule says, else what's left of the
 names of the folders above it, nearest first, up to its torrent's, as a
 series; else its own name's. nil when none says."
-  (let* ((root (car shelf))
-         (rule (longest-rule (relative (dirname root) path)
-                             (remove-if-not (lambda (r) (getf (rest r) :series)) *rules*))))
-    (if rule
+  (let ((root (car shelf))
+        (rule (rule-for path)))
+    (if (says rule :series)
         (getf (rest rule) :series)
         (let ((name (loop for dir = (dirname path) then (dirname dir)
                           while (and (under root dir) (string/= dir root))
@@ -945,10 +1029,10 @@ couldn't say who something is."
   (multiple-value-bind (linked gone) (survey)
     (let* ((run (make-run))
            (seconds (settled (read-seconds)))
-           (paths (remove-if (lambda (p) (assoc p seconds :test #'equal))
+           (paths (remove-if (lambda (p) (or (assoc p seconds :test #'equal) (ignored p)))
                              (candidates linked))))
       (when paths (link-all run paths))
-      (let ((books (shelf-candidates linked)))
+      (let ((books (remove-if #'ignored (shelf-candidates linked))))
         (when books (link-shelf run books)))
       (unless *dry-run*
         (write-ids)

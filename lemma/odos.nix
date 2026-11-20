@@ -16,11 +16,17 @@
 
 	# the rules, as odos reads them: s-expressions
 	lisp = s: "\"${lib.replaceStrings [ "\\" "\"" ] [ "\\\\" "\\\"" ] s}\"";
-	rule = path: r:
-		if r.series != null then "(${lisp path} :series ${lisp r.series})\n"
-		else if r.film != null then "(${lisp path} :film ${toString r.film})\n"
-		else "(${lisp path} :show ${toString r.show} :episodes (${lib.concatMapStrings (e:
-			"(${toString e.from} ${if e.to == null then "nil" else toString e.to} ${toString e.season} ${toString e.offset} ${if e.parts then "t" else "nil"})") r.episodes}))\n";
+	rule = path: r: "(${lisp path}"
+		+ lib.optionalString (r.series != null) " :series ${lisp r.series}"
+		+ lib.optionalString (r.film != null) " :film ${toString r.film}"
+		+ lib.optionalString (r.show != null) (" :show ${toString r.show}"
+			+ (if r.episode != null
+				then " :episode (${toString r.episode.season} ${toString r.episode.number})"
+				else " :episodes (${lib.concatMapStrings (e:
+					"(${toString e.from} ${if e.to == null then "nil" else toString e.to} ${toString e.season} ${toString e.offset} ${if e.parts then "t" else "nil"})") r.episodes})"))
+		+ lib.optionalString r.ignore " :ignore t"
+		+ lib.optionalString r.prefer " :prefer t"
+		+ ")\n";
 	rules = pkgs.writeText "odos-rules" (lib.concatStrings (lib.mapAttrsToList rule config.odos.rules));
 in {
 	imports = [ ./odos-rules.nix ];
@@ -32,7 +38,10 @@ in {
 			the tmdb show whose seasons its episodes are; or a path under
 			/srv/seed that starts with a shelf's tree (manga/, comics/, books/),
 			and the series its files are. The longest path that holds a file is
-			its rule.
+			its rule; a video's holds its subtitles too. `ignore` keeps what it
+			holds out, and `prefer` makes its copies win over any other copy of
+			the same episode or film. `odos rules --nix` prints the rules made
+			with odos's command line in this form.
 		'';
 		default = {};
 		type = lib.types.attrsOf (lib.types.submodule ({ config, ... }: {
@@ -43,7 +52,31 @@ in {
 					type = lib.types.nullOr lib.types.str;
 					default = null;
 				};
-				show = lib.mkOption { type = lib.types.nullOr lib.types.ints.positive; default = null; };
+				show = lib.mkOption {
+					description = "The show, its seasons and episodes as the names say, or as `season` or `episodes` or `episode` say.";
+					type = lib.types.nullOr lib.types.ints.positive;
+					default = null;
+				};
+				episode = lib.mkOption {
+					description = "The one episode a file of `show` is.";
+					type = lib.types.nullOr (lib.types.submodule {
+						options = {
+							season = lib.mkOption { type = lib.types.ints.unsigned; };
+							number = lib.mkOption { type = lib.types.ints.unsigned; };
+						};
+					});
+					default = null;
+				};
+				ignore = lib.mkOption {
+					description = "Never linked: openings, endings, extras.";
+					type = lib.types.bool;
+					default = false;
+				};
+				prefer = lib.mkOption {
+					description = "Its copies win over any other of the same episode or film.";
+					type = lib.types.bool;
+					default = false;
+				};
 				season = lib.mkOption {
 					description = "The season all its episodes are, shifted by offset.";
 					type = lib.types.nullOr lib.types.ints.unsigned;

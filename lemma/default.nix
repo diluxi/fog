@@ -8,6 +8,7 @@
 		./dn42.nix
 		./kino.nix
 		./shelf.nix
+		./komf.nix
 		./odos.nix
 		./box.nix
 		./xmpp.nix

@@ -280,6 +280,22 @@ switched to, so a rewrite stops deploys until its state is fixed by hand.
   Kavita won't scan a library whose folder is empty (a lost mount, to
   it). A Kavita whose first admin isn't fog makes `kavita-setup` fail
   until fog is an admin.
+- Komf 2.1 (`lemma/komf.nix`, Snd-R's metadata fetcher, a release jar on
+  `jre_headless`) gives Kavita's Manga and Books series their metadata
+  and covers, from MangaUpdates, AniList, MangaDex and MangaBaka together
+  (aggregated; MangaDex not for Books, which are novels). Comics get none:
+  ComicVine wants an API key. It writes only through Kavita's API, never
+  ComicInfo into the seeded archives. Its start logs in to Kavita as fog
+  (`crypt.generated.kavita-admin`), takes fog's API key into its
+  environment only, and writes `/var/lib/komf/application.yml` from Nix
+  with the libraries' ids; what its UI changes lasts until a restart.
+  HTTP logging is off, since Kavita's authentication puts the key in a
+  URL. Komf's event listener matches series whose chapters a Kavita scan
+  adds after Komf started; existing ones by hand:
+  `curl -X POST 127.0.0.1:8085/api/kavita/metadata/match/library/<id>`.
+  Komf listens on every address with no login, so an nftables table of
+  its own drops port 8085 unless it comes from loopback or the admin
+  role's `fog-admin` (its UI at http://10.10.1.1:8085).
 
 ### Next, as agreed
 

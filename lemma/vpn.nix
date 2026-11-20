@@ -20,6 +20,47 @@
 	v4 = r: "10.10.${toString r.n}";
 	v6 = r: "${ula}:${lib.toHexString r.n}";
 
+	# the names' address: role 0's, which no role has. a name answers with one
+	# address, but each role reaches lemma0 at its own, so names live at one
+	# all roles reach, on an interface of its own
+	names = { v4 = "${v4 { n = 0; }}.1"; v6 = "${v6 { n = 0; }}::1"; };
+	# a name's hosts: bt.lem0, and its long one, bittorrent.lemma0
+	hostsOf = name: n: [ "${name}.${cfg.short}" ]
+		++ lib.optional (n.long != null) "${n.long}.${config.networking.hostName}";
+	# the roles that reach any name, whose interfaces need dns and http open
+	namedRoles = lib.unique (lib.concatMap (n: n.roles) (lib.attrValues cfg.names));
+
+	namesConfig = {
+		# the names: their address on a dummy interface, which every role's
+		# peers route to; resolved answering for them there from /etc/hosts;
+		# and a site of caddy's for each, over http, for its roles' peers only
+		systemd.network.netdevs."40-fog-names".netdevConfig = { Name = "fog-names"; Kind = "dummy"; };
+		systemd.network.networks."40-fog-names" = {
+			matchConfig.Name = "fog-names";
+			address = [ "${names.v4}/32" "${names.v6}/128" ];
+			linkConfig.RequiredForOnline = "no";
+		};
+		networking.hosts = lib.mkIf (cfg.names != {}) {
+			${names.v4} = lib.concatLists (lib.mapAttrsToList hostsOf cfg.names);
+			${names.v6} = lib.concatLists (lib.mapAttrsToList hostsOf cfg.names);
+		};
+		services.resolved.settings.Resolve.DNSStubListenerExtra = [ names.v4 names.v6 ];
+		services.caddy.virtualHosts = lib.mapAttrs' (name: n: let
+			hosts = map (h: "http://${h}") (hostsOf name n);
+			from = lib.concatMapStringsSep " " (role: "${v4 cfg.roles.${role}}.0/24 ${v6 cfg.roles.${role}}::/64") n.roles;
+		in lib.nameValuePair (lib.head hosts) {
+			serverAliases = lib.tail hosts;
+			extraConfig = ''
+				@outside not remote_ip ${from}
+				route {
+					abort @outside
+					${lib.optionalString (n.path != null) "redir / ${n.path}"}
+					reverse_proxy 127.0.0.1:${toString n.port}
+				}
+			'';
+		}) cfg.names;
+	};
+
 	# secrets nobody types, made on lemma0. wg-portal reads them from the
 	# environment, substituted into its config
 	secrets = {
@@ -127,9 +168,57 @@
 		SaveConfig = false;
 		PeerDefNetwork = [ "${v4 r}.0/24" "${v6 r}::/64" ];
 		PeerDefEndpoint = "${host}:${toString r.port}";
-		PeerDefAllowedIPs = [ "${v4 r}.1/32" "${v6 r}::1/128" ];
+		# lemma0's address on the role, and the names' address
+		PeerDefAllowedIPs = [ "${v4 r}.1/32" "${v6 r}::1/128" "${names.v4}/32" "${names.v6}/128" ];
 	};
 in {
+	options.vpn.short = lib.mkOption {
+		description = ''
+			lemma0's short name, the private top-level domain its vpn names live
+			under (bt.lem0). Its long names live under its host name
+			(bittorrent.lemma0).
+		'';
+		type = lib.types.strMatching "[a-z0-9-]+";
+		example = "lem0";
+	};
+
+	options.vpn.names = lib.mkOption {
+		description = ''
+			Short names for services, for vpn peers: <name>.''${vpn.short}, over
+			plain http, which wireguard already encrypts. Each is a site of
+			caddy's at the names' address, proxying to the service on loopback,
+			for the peers of the roles named. Peers resolve them by asking
+			lemma0's resolver at that address for the domain, e.g. on a client
+			with systemd-resolved: DNS=10.10.0.1 and Domains=~lem0 ~lemma0 on its
+			wireguard link. Only for services with a login of their own or none:
+			one behind authelia has its login tied to its public name.
+		'';
+		default = {};
+		type = lib.types.attrsOf (lib.types.submodule {
+			options = {
+				port = lib.mkOption {
+					description = "The port it serves on, on 127.0.0.1.";
+					type = lib.types.port;
+				};
+				long = lib.mkOption {
+					description = "A longer name for it, under the host name: bittorrent.";
+					type = lib.types.nullOr lib.types.str;
+					default = null;
+				};
+				roles = lib.mkOption {
+					description = "The vpn roles whose peers may reach it.";
+					type = lib.types.listOf lib.types.str;
+					default = [ "admin" ];
+				};
+				path = lib.mkOption {
+					description = "Where its root redirects, for a service under a url base.";
+					type = lib.types.nullOr lib.types.str;
+					default = null;
+				};
+			};
+		});
+	};
+
 	options.vpn.roles = lib.mkOption {
 		description = ''
 			lemma0's vpn, one wireguard interface per role, which wg-portal
@@ -178,7 +267,7 @@ in {
 		}));
 	};
 
-	config = {
+	config = lib.mkMerge [ namesConfig {
 		assertions = [
 			{
 				assertion = lib.allUnique (lib.mapAttrsToList (_: r: r.n) cfg.roles);
@@ -187,7 +276,13 @@ in {
 		] ++ lib.mapAttrsToList (_: r: {
 			assertion = lib.stringLength r.interface <= 15;
 			message = "vpn.roles: ${r.interface} is longer than an interface name may be";
-		}) cfg.roles;
+		}) cfg.roles ++ lib.mapAttrsToList (_: r: {
+			assertion = r.n > 0;
+			message = "vpn.roles: n = 0 is the names' address, not a role's";
+		}) cfg.roles ++ lib.concatLists (lib.mapAttrsToList (name: n: map (role: {
+			assertion = cfg.roles ? ${role};
+			message = "vpn.names.${name}: there is no vpn role ${role}";
+		}) n.roles) cfg.names);
 
 		vpn.roles.admin = {
 			n = 1;
@@ -301,10 +396,13 @@ in {
 			allowedUDPPorts = lib.mapAttrsToList (_: r: r.port) cfg.roles;
 			trustedInterfaces = lib.mapAttrsToList (_: r: r.interface)
 				(lib.filterAttrs (_: r: r.trusted) cfg.roles);
-			interfaces = lib.mapAttrs' (_: r: lib.nameValuePair r.interface {
-				allowedTCPPorts = r.tcp;
+			interfaces = lib.mapAttrs' (role: r: lib.nameValuePair r.interface {
+				# and dns and http for the names, where any name is the role's
+				allowedTCPPorts = r.tcp ++ lib.optionals (lib.elem role namedRoles) [ 53 80 ];
+				allowedUDPPorts = lib.optional (lib.elem role namedRoles) 53;
 			}) (lib.filterAttrs (_: r: !r.trusted) cfg.roles);
 		};
+
 
 		services.authelia.instances.main.settings.identity_providers.oidc = {
 			authorization_policies.vpn = {
@@ -339,5 +437,5 @@ in {
 			respond @password 404
 			reverse_proxy 127.0.0.1:${toString port}
 		'';
-	};
+	} ];
 }

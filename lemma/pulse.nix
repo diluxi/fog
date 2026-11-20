@@ -156,6 +156,13 @@ in {
 		grafana-admin = {};
 	};
 
+	# prometheus and the node exporter by name, for the admin role's peers.
+	# grafana logs in through authelia only, so it stays at its own name
+	vpn.names = {
+		pm = { port = config.services.prometheus.port; long = "prometheus"; };
+		ne = { port = config.services.prometheus.exporters.node.port; long = "node"; };
+	};
+
 	services.prometheus = {
 		enable = true;
 		listenAddress = "127.0.0.1";

@@ -203,6 +203,10 @@ in {
 		info = "manga, comics and books at https://${shelf}, after a second factor you set up on first login";
 	};
 
+	# http://kv.lem0 for the admin role's peers: fog's password login works
+	# there, authelia's doesn't (its callback is shelf.amartia.online)
+	vpn.names.kv = { inherit port; long = "shelf"; };
+
 	services.caddy.virtualHosts.${shelf}.extraConfig = ''
 		reverse_proxy 127.0.0.1:${toString port}
 	'';

@@ -179,6 +179,9 @@ in {
 			'';
 		};
 
+		# and http://jf.lem0 for the admin role's peers
+		vpn.names.jf = { port = 8096; long = "kino"; };
+
 		# kino.cpli.dev still answers until the apps point at amartia.online
 		services.caddy.virtualHosts.${kino} = {
 			serverAliases = [ "kino.${config.networking.fqdn}" ];

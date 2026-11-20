@@ -68,6 +68,10 @@ in {
 	# lldap_admin, which is what its password reset needs and no more
 	lldap.serviceAccounts.authelia.groups = [ "lldap_password_manager" ];
 
+	# lldap's own ui by name for the admin role's peers, with lldap's login
+	# alone: ldap.amartia.online asks authelia's second factor first
+	vpn.names.ld = { port = config.services.lldap.settings.http_port; long = "ldap"; };
+
 	crypt.generated = {
 		authelia-jwt = {};
 		authelia-session = {};

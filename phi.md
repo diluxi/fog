@@ -187,7 +187,16 @@ switched to, so a rewrite stops deploys until its state is fixed by hand.
   through wg-portal's API, with keys from `crypt.generated.vpn-fog-<name>`.
   Roles: `admin` (lldap_admin, everything, at 10.10.1.1), `torrent` (the
   qBittorrent's API on 9092, prowlarr on 9697) and `ssh` (port 22, for the
-  lldap group `ssh`). `fog` and `dn42` stay networkd's.
+  lldap group `ssh`). `fog` and `dn42` stay networkd's. Services name
+  themselves for vpn peers with `vpn.names.<short>` (port, roles, a long
+  name, a path): `http://bt.lem0`, or `bittorrent.lemma0`, under
+  `vpn.short` and the host name. They all live at 10.10.0.1 and
+  fd60:d315:194a:0::1 (role 0, on the dummy `fog-names`), which every
+  role's peers route to; resolved answers for them there from
+  /etc/hosts, and Caddy serves each over HTTP to its roles' subnets only.
+  A client asks 10.10.0.1 for `~lem0 ~lemma0` on its WireGuard link.
+  Services behind Authelia keep their public names: their logins are tied
+  to them.
 - sshd is only reachable over the VPN (since 2026-11-16), keys only, no
   keyboard-interactive. `fog`'s default host is 10.10.1.1, the admin role's
   address; `FOG_HOST` overrides it. If the VPN breaks, log in on Hetzner's

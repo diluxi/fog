@@ -199,6 +199,9 @@ in {
 	# mail is their contact address
 	lldap.userAttributes = [ "mailbox" ];
 
+	# stalwart's web admin by name for the admin role's peers
+	vpn.names.mx = { port = 8080; long = "mail"; };
+
 	# fog: the system's own address, for services that send mail. they log
 	# in to submission as fog, so their mail is signed like anyone's
 	lldap.serviceAccounts.fog = {

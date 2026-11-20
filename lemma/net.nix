@@ -14,6 +14,10 @@
 		-----END PGP MESSAGE-----
 	'';
 
+	# lemma0's short name, the private domain of its vpn names: bt.lem0
+	# (lemma/vpn.nix)
+	vpn.short = "lem0";
+
 	networking = {
 		hostName = "lemma0";
 		fqdn = "cpli.dev";

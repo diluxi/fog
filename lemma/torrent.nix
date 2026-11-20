@@ -425,6 +425,11 @@ in {
 		label = "torrent";
 		tcp = [ proxy prowlarrProxy ];
 	};
+	# by name for the torrent and admin roles' peers: http://bt.lem0, pr.lem0
+	vpn.names = {
+		bt = { port = proxy; long = "bittorrent"; roles = [ "admin" "torrent" ]; };
+		pr = { port = prowlarrProxy; long = "prowlarr"; roles = [ "admin" "torrent" ]; path = "${prowlarrBase}/"; };
+	};
 	invite.groups.torrent = {
 		label = "Torrents";
 		info = "https://${seed}, after a second factor you set up on first login; or over the vpn, from a device you add at https://vpn.amartia.online";

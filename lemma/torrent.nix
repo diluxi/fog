@@ -523,6 +523,12 @@ in {
 			send() { curl -sSf -K "$rc" -X "$1" -H 'content-type: application/json' --data-binary @- "$api/$2" >/dev/null; }
 
 			for i in $(seq 120); do get system/status >/dev/null 2>&1 && break; sleep 1; done
+			# and qbittorrent: saving the client makes prowlarr test it, and a
+			# switch restarts both at once
+			for i in $(seq 120); do
+				curl -sf http://127.0.0.1:${toString proxy}/api/v2/app/version >/dev/null && break
+				sleep 1
+			done
 
 			# prowlarr's own schema, with what's declared here filled in
 			want=$(get downloadclient/schema | jq -c \

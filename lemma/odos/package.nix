@@ -5,7 +5,7 @@ in stdenvNoCC.mkDerivation {
 	version = "0";
 	src = lib.fileset.toSource {
 		root = ./.;
-		fileset = lib.fileset.unions [ ./odos.asd ./odos.lisp ];
+		fileset = lib.fileset.fileFilter (f: f.hasExt "lisp" || f.hasExt "asd") ./.;
 	};
 	nativeBuildInputs = [ lisp makeWrapper ];
 	# an image with odos and jzon in it, which starts in odos:main and

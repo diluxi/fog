@@ -192,7 +192,8 @@ switched to, so a rewrite stops deploys until its state is fixed by hand.
   keyboard-interactive. `fog`'s default host is 10.10.1.1, the admin role's
   address; `FOG_HOST` overrides it. If the VPN breaks, log in on Hetzner's
   console as cpli, the one account with a password.
-- odos (`lemma/odos.nix`, Common Lisp in `lemma/odos/`), "way" in Greek:
+- odos (`lemma/odos.nix`, Common Lisp in `lemma/odos/`, whose `README.md`
+  maps its files; read it before changing odos), "way" in Greek:
   links what's under `/srv/seed/video` into Jellyfin's two libraries,
   `/srv/kino/TV/Show (Year)/Season NN/Show SxxEyy.ext` and
   `/srv/kino/Films/Title (Year)/Title (Year).ext`, subtitles beside their

@@ -271,6 +271,10 @@ in {
 				# pread and pwrite, not mmap: libtorrent's default maps files,
 				# which over gocryptfs and smb stalls whatever touches them
 				DiskIOType = "Posix";
+				# and many at once: a read from witness0 takes some 23 ms, so
+				# throughput is concurrency (fio, 16k random reads: 0.7 MiB/s
+				# with one, 17 with ten, qbittorrent's default, 65 with 32)
+				AsyncIOThreadsCount = 32;
 				# everything goes to witness0 (lemma/box.nix), partial torrents
 				# too, so qbittorrent can't fill lemma0's own disk, which every
 				# other service's databases live on; by category, else other/

@@ -69,7 +69,12 @@
 			while read -r server; do
 				name=$(jq -r .public_name <<<"$server")
 				# the peer anew, so the old server's session goes with it and
-				# the handshake below is the new server's
+				# the handshake below is the new server's. and a new port of our
+				# own: every airvpn server has the same key, so a server we left
+				# that still has traffic for us would start a handshake to our
+				# address, wireguard would follow it there, and the tunnel would
+				# flip between servers. it can't reach a port we no longer use
+				ip netns exec airvpn wg set airvpn listen-port 0
 				ip netns exec airvpn wg set airvpn peer "$pk" remove
 				ip netns exec airvpn wg set airvpn peer "$pk" \
 					preshared-key ${run}/psk \

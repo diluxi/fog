@@ -28,6 +28,28 @@
 		+ lib.optionalString r.prefer " :prefer t"
 		+ ")\n";
 	rules = pkgs.writeText "odos-rules" (lib.concatStrings (lib.mapAttrsToList rule config.odos.rules));
+
+	# what the service and the command line both say
+	flags = [
+		"--video" video
+		"--links" kino
+		"--shows" "${kino}/TV"
+		"--films" "${kino}/Films"
+		"--state" "/var/lib/odos"
+		"--rules" rules
+	] ++ lib.concatLists (lib.mapAttrsToList (tree: library:
+		[ "--shelf" "/srv/seed/${tree}:${shelf}/${library}" ]) shelves);
+
+	# odos's command line, for root: its rules and seconds are in odos's
+	# state, which is root's and odos's own. a change starts the service,
+	# which links as odos's user
+	cli = pkgs.writeShellScriptBin "odos" ''
+		[ "$(id -u)" = 0 ] || exec /run/wrappers/bin/sudo "$0" "$@"
+		exec ${lib.escapeShellArgs ([ (lib.getExe odos) ] ++ flags ++ [
+			"--key-file" config.crypt.generated.jellyfin-api.path
+			"--service" "odos.service"
+		])} "$@"
+	'';
 in {
 	imports = [ ./odos-rules.nix ];
 
@@ -127,18 +149,8 @@ in {
 			after = [ "jellyfin.service" ];
 			serviceConfig = {
 				Type = "oneshot";
-				ExecStart = lib.escapeShellArgs [
-					(lib.getExe odos)
-					"--video" video
-					"--links" kino
-					"--shows" "${kino}/TV"
-					"--films" "${kino}/Films"
-					"--state" "/var/lib/odos"
-					"--spool" spool
-					"--key-file" "%d/api"
-				"--rules" rules
-				] + lib.concatStrings (lib.mapAttrsToList (tree: library:
-					" --shelf ${lib.escapeShellArg "/srv/seed/${tree}:${shelf}/${library}"}") shelves);
+				ExecStart = lib.escapeShellArgs ([ (lib.getExe odos) ] ++ flags
+					++ [ "--spool" spool "--key-file" "%d/api" ]);
 				LoadCredential = [ "api:${config.crypt.generated.jellyfin-api.path}" ];
 				DynamicUser = true;
 				# kino may write /srv/kino and read /srv/seed/video, shelf write
@@ -158,6 +170,9 @@ in {
 				RestrictAddressFamilies = [ "AF_INET" "AF_INET6" "AF_UNIX" ];
 			};
 		};
+		# `odos help` says what it does
+		environment.systemPackages = [ cli ];
+
 		systemd.paths.odos = {
 			wantedBy = [ "multi-user.target" ];
 			pathConfig.DirectoryNotEmpty = spool;

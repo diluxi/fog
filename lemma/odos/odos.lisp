@@ -138,14 +138,18 @@ directory that can't be read is said and passed over."
   "The root PATH's link is under: a shelf's library, or *links*."
   (or (cdr (find-if (lambda (shelf) (under (cdr shelf) path)) *shelves*)) *links*))
 
+(defun link-roots ()
+  "Where links are: *links*, and the shelf's libraries not in it."
+  (cons *links* (remove-if (lambda (library) (under *links* library))
+                           (mapcar #'cdr *shelves*))))
+
 (defun survey ()
   "The targets linked to from anywhere under *links* and the shelf's
 libraries, as a set, after links into *video* or a shelf's tree whose file
 is gone are removed. Returns the folders that lost one as the second
 value."
   (let ((linked (make-hash-table :test 'equal)) gone)
-    (dolist (root (cons *links* (remove-if (lambda (library) (under *links* library))
-                                           (mapcar #'cdr *shelves*))))
+    (dolist (root (link-roots))
       (when (eq (kind root) :directory)
         (walk root
               (lambda (path kind)
@@ -288,9 +292,9 @@ lookup can fail.")
                                  (destructuring-bind (id name year) v
                                    (format nil "~a~c~a~c~a~c~@[~d~]" key #\Tab id #\Tab name #\Tab year))))))
 
-(defun look-up (kind title year &optional tmdb)
-  "What jellyfin's metadata finds for TITLE, or for the tmdb id TMDB: (id name
-year) of the first tmdb result, of YEAR if one is; :none for nothing;
+(defun remote-search (kind title year &optional tmdb)
+  "What jellyfin's metadata finds for TITLE (in YEAR, if one), or for the tmdb
+id TMDB: (id name year) for each tmdb result, in jellyfin's order;
 :unreachable if jellyfin can't be asked."
   (let ((out (and *key*
                   (jellyfin (format nil "/Items/RemoteSearch/~a" (if (eq kind :film) "Movie" "Series"))
@@ -300,20 +304,24 @@ year) of the first tmdb result, of YEAR if one is; :none for nothing;
                                           (t (object "Name" title))))))))
     (if (null out)
         :unreachable
-        (let* ((results (remove-if-not (lambda (r)
-                                         (let ((ids (gethash "ProviderIds" r)))
-                                           (and (hash-table-p ids) (stringp (gethash "Tmdb" ids)))))
-                                       (coerce (jzon:parse out) 'list)))
-               (best (cond (tmdb (find (princ-to-string tmdb) results
-                                       :key (lambda (r) (gethash "Tmdb" (gethash "ProviderIds" r)))
-                                       :test #'equal))
-                           ((and year (find year results :key (lambda (r) (gethash "ProductionYear" r)))))
-                           (t (first results)))))
-          (if best
-              (list (gethash "Tmdb" (gethash "ProviderIds" best))
-                    (gethash "Name" best)
-                    (let ((y (gethash "ProductionYear" best))) (and (integerp y) y)))
-              :none)))))
+        (loop for r in (coerce (jzon:parse out) 'list)
+              for ids = (gethash "ProviderIds" r)
+              when (and (hash-table-p ids) (stringp (gethash "Tmdb" ids)))
+                collect (list (gethash "Tmdb" ids)
+                              (gethash "Name" r)
+                              (let ((y (gethash "ProductionYear" r))) (and (integerp y) y)))))))
+
+(defun look-up (kind title year &optional tmdb)
+  "Of what jellyfin's metadata finds, (id name year): the tmdb id TMDB's, or
+the first of YEAR, or the first; :none for nothing; :unreachable if jellyfin
+can't be asked."
+  (let ((results (remote-search kind title year tmdb)))
+    (if (eq results :unreachable)
+        :unreachable
+        (or (cond (tmdb (find (princ-to-string tmdb) results :key #'first :test #'equal))
+                  ((and year (find year results :key #'third)))
+                  (t (first results)))
+            :none))))
 
 (defun identify (kind title year &optional tmdb)
   "(id name year) for TITLE, or for the tmdb id TMDB; :none, or :unreachable."
@@ -547,6 +555,17 @@ ALONE has it."
                      :test #'equal :from-end t
                      :key (lambda (c) (list (fold (first c)) (second c)))))
 
+(defun reads-as (guess)
+  "What GUESS reads a file as: :show or :film, or nil. An \"episode\" with
+neither season nor number is a film whose name has a word guessit takes for
+an episode's (Blade.Runner.Final.Cut)."
+  (let ((type (field guess "type")))
+    (cond ((and (equal type "episode")
+                (or (integerp (field guess "season"))
+                    (some #'integerp (fields guess "episode"))))
+           :show)
+          ((member type '("movie" "episode") :test #'equal) :film))))
+
 (defun place (path guess alone shows films)
   "Where PATH, which GUESS is of, goes, without its extension, and its key for
 subtitles; or nil and why not, or nil and :defer when jellyfin can't say who
@@ -564,17 +583,14 @@ season and episode, GUESS's. SHOWS and FILMS index their roots' folders."
                                  (mapcar (lambda (c) (format nil "~a~@[ (~d)~]" (first c) (second c)))
                                          candidates)))))
     (cond ((null candidates) (values nil "no title"))
-          ;; an "episode" with neither season nor number is a film whose name
-          ;; has a word guessit takes for an episode's (Blade.Runner.Final.Cut)
-          ((and (string= (field guess "type") "episode")
-                (or season episodes))
+          ((eq (reads-as guess) :show)
            (cond ((null episodes) (values nil "an episode without its number"))
                  ((null season) (values nil "an episode without a season (absolute numbering?)"))
                  (t (multiple-value-bind (show name) (folder shows :show candidates)
                       (cond ((eq show :defer) (values nil :defer))
                             ((null show) (unknown))
                             (t (episode-place show name season episodes)))))))
-          ((member (field guess "type") '("movie" "episode") :test #'equal)
+          ((eq (reads-as guess) :film)
            (let ((film (folder films :film candidates)))
              (cond ((eq film :defer) (values nil :defer))
                    ((null film) (unknown))
@@ -948,6 +964,11 @@ series; else its own name's. nil when none says."
   (with-open-file (out (concatenate 'string file ".new") :direction :output
                        :if-exists :supersede :external-format :utf-8)
     (dolist (l lines) (format out "~a~%" l)))
+  ;; root, odos's command line, keeps what it writes odos's
+  (when (zerop (sb-posix:getuid))
+    (let ((dir (sb-posix:stat (dirname file))))
+      (sb-posix:chown (concatenate 'string file ".new")
+                      (sb-posix:stat-uid dir) (sb-posix:stat-gid dir))))
   ;; not rename-file, which would give the new name the old one's type
   (sb-posix:rename (concatenate 'string file ".new") file))
 
@@ -984,11 +1005,14 @@ series; else its own name's. nil when none says."
                           (not (equal (target place) video)))))
                  seconds))
 
+(defun jellyfins (dir)
+  "Whether jellyfin should hear of DIR; kavita scans its libraries itself."
+  (or (under *shows* dir) (under *films* dir)))
+
 (defun report (run gone)
   "What changed is added to what jellyfin hasn't heard yet, which is told.
 False if jellyfin couldn't be reached, and it's kept for next time."
-  (let* ((jellyfins (lambda (dir) (or (under *shows* dir) (under *films* dir))))
-         ;; kavita's libraries it scans itself
+  (let* ((jellyfins #'jellyfins)
          (updates (remove-duplicates
                    (append (read-pending)
                            (mapcar (lambda (d) (cons "Created" d))
@@ -1012,15 +1036,38 @@ False if jellyfin couldn't be reached, and it's kept for next time."
       (handler-case (sb-posix:unlink (join *spool* name))
         (sb-posix:syscall-error () nil)))))
 
+(defun lock ()
+  "Waits until no other odos changes *state* or the links, and keeps others
+waiting until the descriptor it returns is closed, or odos exits."
+  (let ((fd (sb-posix:open *state* sb-posix:o-rdonly)))
+    (unless (zerop (sb-alien:alien-funcall
+                    (sb-alien:extern-alien "flock" (function sb-alien:int sb-alien:int sb-alien:int))
+                    fd 2))                ; LOCK_EX
+      (sb-posix:close fd)
+      (error "can't lock ~a" *state*))
+    fd))
+
+(defmacro with-lock (&body body)
+  (let ((fd (gensym)))
+    `(let ((,fd (lock)))
+       (unwind-protect (progn ,@body) (sb-posix:close ,fd)))))
+
+(defun setup ()
+  "Reads what a run or a command needs: jellyfin's key, tmdb's ids, the rules."
+  (setf *key* (and *key-file* (eq (kind *key-file*) :file)
+                   (string-trim '(#\Space #\Newline #\Tab) (uiop:read-file-string *key-file*))))
+  (read-ids)
+  (read-rules))
+
 (defun odos ()
   "One run. True unless jellyfin is owed a report it couldn't take, or
 couldn't say who something is."
+  (if *dry-run* (pass) (with-lock (pass))))
+
+(defun pass ()
   (empty-spool)
-  (setf *key* (and *key-file* (eq (kind *key-file*) :file)
-                   (string-trim '(#\Space #\Newline #\Tab) (uiop:read-file-string *key-file*))))
+  (setup)
   (unless *key* (say "no api key: shows and films are named by guessit alone"))
-  (read-ids)
-  (read-rules)
   (unless *dry-run*
     (dolist (root (list *shows* *films*))
       (ensure-directories root *links*))
@@ -1053,36 +1100,534 @@ couldn't say who something is."
         (say "~d file~:p wait for jellyfin to say what they are" (run-deferred run)))
       (and (report run gone) (zerop (run-deferred run))))))
 
-(defun usage ()
-  (format *error-output* "usage: odos [--dry-run] [--video DIR] [--links DIR] [--shows DIR] [--films DIR]
-            [--state DIR] [--spool DIR] [--jellyfin URL] [--key-file FILE] [--rules FILE]
-            [--shelf TREE:LIBRARY]...~%")
-  (uiop:quit 64))
+;;; the command line: what's linked and what's left alone, why a file goes
+;;; where it does, and rules made on lemma0 rather than in nix, kept in
+;;; *state*/rules (odos rules --nix prints them for odos-rules.nix). what
+;;; changes where files go unlinks those they hold and starts odos's
+;;; service, which links them again, as odos's own user
+
+(defvar *service* nil "The unit that runs odos, started after a change.")
+
+(defun all-links ()
+  "Every link under the link roots, (link . target) each."
+  (let (found)
+    (dolist (root (link-roots) (nreverse found))
+      (when (eq (kind root) :directory)
+        (walk root (lambda (path kind)
+                     (when (eq kind :link)
+                       (push (cons path (target path)) found))))))))
+
+(defun absolute (path)
+  "PATH from the command line, absolute and normal; a link's target, if it's
+one under the link roots."
+  (when (string= path "") (error "an empty path"))
+  (let ((p (normalize (if (char= (char path 0) #\/) path (join (sb-posix:getcwd) path)))))
+    (if (and (eq (kind p) :link) (some (lambda (root) (under root p)) (link-roots)))
+        (target p)
+        p)))
+
+(defun rule-path (path)
+  "The path a rule for PATH, absolute, says: relative to *video*, or to the
+seed tree for a shelf's."
+  (let ((shelf (shelf-of path)))
+    (cond (shelf (relative (dirname (car shelf)) path))
+          ((and (under *video* path) (string/= path *video*)) (relative *video* path))
+          (t (error "~a is in neither ~a nor a shelf's tree~@[ (~{~a~^, ~})~]"
+                    path *video* (mapcar #'car *shelves*))))))
+
+(defun rule-absolute (rule)
+  "The absolute path RULE is for."
+  (let ((shelf (find-if (lambda (shelf) (holds (basename (car shelf)) (first rule))) *shelves*)))
+    (join (if shelf (dirname (car shelf)) *video*) (first rule))))
+
+(defun rule-string (rule)
+  "RULE as the rules file has it. Not printed readably, which prints the
+base strings subseq makes as arrays."
+  (with-standard-io-syntax
+    (let ((*print-case* :downcase) (*print-readably* nil))
+      (prin1-to-string rule))))
+
+(defun write-rules (rules)
+  (write-lines (cli-rules-file) (mapcar #'rule-string rules)))
+
+(defun preference-p (rule)
+  "Whether RULE only prefers; the command line's either do that or say where
+a file goes."
+  (equal (rest rule) '(:prefer t)))
+
+(defun unlink-under (path)
+  "Removes the links to files under PATH, or under PATH if it's a folder of
+links, with the subtitles' beside their videos', and forgets them as
+seconds, so the next run places them again. Says what it did, or would."
+  (let* ((links (all-links))
+         (held (lambda (link to) (or (under path to) (under path link))))
+         (videos (loop for (link . to) in links
+                       when (and (funcall held link to) (member (extension link) +videos+ :test #'string=))
+                         collect link))
+         (seconds (read-seconds))
+         (gone (loop for (link . to) in links
+                     when (or (funcall held link to)
+                              (and (member (extension link) +subtitles+ :test #'string=)
+                                   (some (lambda (video)
+                                           (let ((stem (stem video)))
+                                             (and (string= (dirname video) (dirname link))
+                                                  (> (length link) (length stem))
+                                                  (string= stem link :end2 (length stem))
+                                                  (char= (char link (length stem)) #\.))))
+                                         videos)))
+                       collect link))
+         (kept (remove-if (lambda (s) (or (under path (first s)) (under path (third s)))) seconds)))
+    (dolist (link gone)
+      (unless *dry-run* (sb-posix:unlink link))
+      (say "~:[unlinked~;would unlink~] ~a" *dry-run* link))
+    (when (/= (length kept) (length seconds))
+      (say "~:[forgot~;would forget~] ~d cop~:@p kept out for a better one"
+           *dry-run* (- (length seconds) (length kept)))
+      (unless *dry-run* (write-seconds kept)))
+    (unless *dry-run*
+      (dolist (link gone)
+        (prune (dirname link) (link-root link)))
+      ;; jellyfin hears of it with the run that links them again
+      (write-pending (remove-duplicates
+                      (append (read-pending)
+                              (mapcar (lambda (d) (cons "Deleted" d))
+                                      (remove-if-not #'jellyfins (mapcar #'dirname gone))))
+                      :test #'equal)))
+    (when (and (null gone) (= (length kept) (length seconds)))
+      (say "nothing under ~a was linked" path))))
+
+(defun rerun ()
+  "Starts odos's service, and shows what it did."
+  (cond (*dry-run*)
+        ((null *service*) (say "a run of odos places them"))
+        (t (say "starting ~a" *service*)
+           (let ((code (nth-value 2 (uiop:run-program (list "systemctl" "start" *service*)
+                                                      :output :interactive :error-output :interactive
+                                                      :ignore-error-status t)))
+                 (id (string-trim '(#\Newline #\Space)
+                                  (uiop:run-program (list "systemctl" "show" "--property=InvocationID"
+                                                          "--value" *service*)
+                                                    :output :string :ignore-error-status t))))
+             (when (string/= id "")
+               (uiop:run-program (list "journalctl" "--no-pager" "--output=cat"
+                                       (format nil "_SYSTEMD_INVOCATION_ID=~a" id))
+                                 :output :interactive :ignore-error-status t))
+             (unless (zerop code)
+               (say "~a didn't finish well; journalctl -u ~a says more" *service* *service*))))))
+
+(defun change (path rule)
+  "Adds RULE, the command line's, for PATH, in place of what they said of
+it before (of where it goes, or of preferring it), and places what it holds
+again."
+  (with-lock
+    (read-rules)
+    (let ((rules (append (remove-if (lambda (r)
+                                      (and (string= (first r) (first rule))
+                                           (eq (preference-p r) (preference-p rule))))
+                                    *cli-rules*)
+                         (list rule))))
+      (say "~:[~;would add ~]~a" *dry-run* (rule-string rule))
+      (unless *dry-run* (write-rules rules)))
+    (unlink-under path))
+  (rerun))
+
+(defun tmdb-name (kind id)
+  "Says who tmdb's ID is, refusing an id it doesn't know."
+  (let ((found (identify kind nil nil id)))
+    (cond ((consp found) (say "~(~a~) ~a is ~a~@[ (~d)~]" kind id (second found) (third found)))
+          ((eq found :none) (error "tmdb knows no ~(~a~) ~a" kind id))
+          (t (say "jellyfin didn't answer, so ~(~a~) ~a is taken on trust" kind id)))))
+
+(defun existing (arg)
+  "ARG as an absolute path, which must be there."
+  (let ((path (absolute arg)))
+    (unless (kind path) (error "nothing at ~a" path))
+    path))
+
+(defun number-arg (s what)
+  (or (and s (every #'digit-char-p s) (plusp (length s)) (parse-integer s))
+      (error "~a should be a number, not ~:[nothing~;~:*~a~]" what s)))
+
+(defun video-path (path)
+  (when (shelf-of path) (error "~a is a shelf's, not a video's" path))
+  (rule-path path))
+
+;;; the commands
+
+(defun cmd-place (kind args)
+  "show PATH [tmdb] ID [season N [offset K]], film PATH [tmdb] ID, episode
+FILE [tmdb] ID SEASON EP."
+  (let* ((path (existing (or (pop args) (usage))))
+         (rel (video-path path))
+         (id (progn (when (equal (first args) "tmdb") (pop args))
+                    (number-arg (pop args) "the tmdb id"))))
+    (setup)
+    (tmdb-name (if (eq kind :film) :film :show) id)
+    (change path
+            (ecase kind
+              (:film (list rel :film id))
+              (:show (if (null args)
+                         (list rel :show id)
+                         (let ((season (progn (unless (equal (pop args) "season") (usage))
+                                              (number-arg (pop args) "the season")))
+                               (offset (cond ((null args) 0)
+                                             ((equal (pop args) "offset")
+                                              (let ((k (pop args)))
+                                                (if (and k (char= (char k 0) #\-))
+                                                    (- (number-arg (subseq k 1) "the offset"))
+                                                    (number-arg k "the offset"))))
+                                             (t (usage)))))
+                           (list rel :show id :episodes (list (list 1 nil season offset nil))))))
+              (:episode
+               (unless (eq (kind path) :file) (error "~a isn't a file" path))
+               (list rel :show id :episode (list (number-arg (pop args) "the season")
+                                                 (number-arg (pop args) "the episode"))))))))
+
+(defun cmd-series (args)
+  (let* ((path (existing (or (pop args) (usage))))
+         (name (or (pop args) (usage))))
+    (unless (shelf-of path) (error "~a isn't in a shelf's tree" path))
+    (when (string= (clean name) "") (error "a series needs a name"))
+    (read-rules)
+    (change path (list (rule-path path) :series (clean name)))))
+
+(defun cmd-ignore (args)
+  (let ((path (existing (or (pop args) (usage)))))
+    (read-rules)
+    (change path (list (rule-path path) :ignore t))))
+
+(defun cmd-prefer (args)
+  (let ((path (existing (or (pop args) (usage)))))
+    (read-rules)
+    (change path (list (video-path path) :prefer t))))
+
+(defun cmd-forget (args)
+  "forget RULE: the command line's rules for a path, as `odos rules` prints it
+or as a path."
+  (let ((arg (or (pop args) (usage))))
+    (with-lock
+      (read-rules)
+      (let* ((rel (if (find arg *cli-rules* :key #'first :test #'string=)
+                      arg
+                      (rule-path (absolute arg))))
+             (gone (remove rel *cli-rules* :key #'first :test-not #'string=)))
+        (unless gone
+          (error "the command line has no rule for ~a~@[; nix's is in odos-rules.nix~]"
+                 rel (find rel *nix-rules* :key #'first :test #'string=)))
+        (dolist (r gone) (say "~:[~;would ~]forget ~a" *dry-run* (rule-string r)))
+        (unless *dry-run*
+          (write-rules (remove rel *cli-rules* :key #'first :test #'string=)))
+        (unlink-under (rule-absolute (first gone)))))
+    (rerun)))
+
+(defun cmd-relink (args)
+  (let ((path (existing (or (pop args) (usage)))))
+    (with-lock (unlink-under path))
+    (rerun)))
+
+(defun group-of (link)
+  "What LINK is listed under: its show's or film's folder, or its series'."
+  (let ((root (find-if (lambda (root) (under root link))
+                       (append (list *shows* *films*) (mapcar #'cdr *shelves*)))))
+    (if root
+        (join root (subseq (relative root link) 0 (position #\/ (relative root link))))
+        (dirname link))))
+
+(defun cmd-list (args)
+  "list [--tmdb ID | --path P]: what's linked, by show, film or series."
+  (let (tmdb path)
+    (loop while args
+          do (let ((flag (pop args)))
+               (cond ((string= flag "--tmdb") (setf tmdb (princ-to-string (number-arg (pop args) "the tmdb id"))))
+                     ((string= flag "--path") (setf path (absolute (or (pop args) (usage)))))
+                     (t (usage)))))
+    (let ((groups (make-hash-table :test 'equal))
+          (seconds (settled (read-seconds))))
+      (loop for (link . to) in (all-links)
+            for group = (group-of link)
+            when (and (or (null tmdb) (equal tmdb (let ((id (tmdb-of (basename group)))) (and id (aref id 0)))))
+                      (or (null path) (under path to)))
+              do (push (format nil "  ~a -> ~a" (relative group link) to) (gethash group groups)))
+      (loop for (copy place) in seconds
+            for group = (group-of place)
+            when (and (member (extension copy) +videos+ :test #'string=)
+                      (or (null tmdb) (equal tmdb (let ((id (tmdb-of (basename group)))) (and id (aref id 0)))))
+                      (or (null path) (under path copy)))
+              do (push (format nil "  ~a, kept out: ~a" (relative group place) copy) (gethash group groups)))
+      (let ((names (sort (loop for g being the hash-keys of groups collect g) #'string<)))
+        (unless names (say "nothing linked~@[ under ~a~]~@[ for tmdb ~a~]" path tmdb))
+        (dolist (g names)
+          (say "~a" (relative (dirname (dirname g)) g))
+          (dolist (line (sort (gethash g groups) #'string<))
+            (say "~a" line)))))))
+
+(defun cmd-unsure ()
+  (let ((unsure (read-pairs (join *state* "unsure"))))
+    (unless unsure (say "nothing was left alone at the last run"))
+    (loop for (why . path) in unsure
+          do (say "~a~%  ~a" path why))))
+
+(defun nix-string (s)
+  (format nil "\"~a\"" (ppcre:regex-replace-all "([\"\\\\]|\\$\\{)" s "\\\\\\1")))
+
+(defun nix-rule (rules)
+  "RULES, all for one path, as one of odos.rules's attributes."
+  (let (attrs)
+    (dolist (r rules)
+      (destructuring-bind (&key film show episodes episode series ignore prefer) (rest r)
+        (when film (push (format nil "film = ~d;" film) attrs))
+        (when show (push (format nil "show = ~d;" show) attrs))
+        (when episode
+          (push (format nil "episode = { season = ~d; number = ~d; };" (first episode) (second episode)) attrs))
+        (cond ((and (= (length episodes) 1)
+                    (destructuring-bind (from to season offset &optional parts) (first episodes)
+                      (declare (ignore season offset))
+                      (and (= from 1) (null to) (null parts))))
+               (destructuring-bind (from to season offset &optional parts) (first episodes)
+                 (declare (ignore from to parts))
+                 (push (format nil "season = ~d;" season) attrs)
+                 (unless (zerop offset) (push (format nil "offset = ~d;" offset) attrs))))
+              (episodes
+               (push (format nil "episodes = [~{ { ~{~a~^ ~} }~} ];"
+                             (loop for (from to season offset parts) in episodes
+                                   collect (remove nil (list (and (/= from 1) (format nil "from = ~d;" from))
+                                                             (and to (format nil "to = ~d;" to))
+                                                             (format nil "season = ~d;" season)
+                                                             (and (/= offset 0) (format nil "offset = ~d;" offset))
+                                                             (and parts "parts = true;")))))
+                     attrs)))
+        (when series (push (format nil "series = ~a;" (nix-string series)) attrs))
+        (when ignore (push "ignore = true;" attrs))
+        (when prefer (push "prefer = true;" attrs))))
+    (format nil "~a = { ~{~a~^ ~} };" (nix-string (first (first rules))) (reverse attrs))))
+
+(defun cmd-rules (args)
+  "rules [--nix]: the command line's rules, then nix's; or the command line's
+as nix, for odos-rules.nix."
+  (read-rules)
+  (cond ((equal args '("--nix"))
+         (say "# odos's command line's rules, for odos.rules in lemma/odos-rules.nix")
+         (let (paths)
+           (dolist (r *cli-rules*) (pushnew (first r) paths :test #'string=))
+           (dolist (p (reverse paths))
+             (say "~a" (nix-rule (remove p *cli-rules* :key #'first :test-not #'string=))))))
+        (args (usage))
+        (t (unless *rules* (say "no rules"))
+           (dolist (r *cli-rules*) (say "cli ~a" (rule-string r)))
+           (dolist (r *nix-rules*) (say "nix ~a" (rule-string r))))))
+
+(defun cmd-search (args)
+  "search TITLE [--film] [--year Y]: what tmdb, through jellyfin, finds."
+  (let (title film year)
+    (loop while args
+          do (let ((a (pop args)))
+               (cond ((string= a "--film") (setf film t))
+                     ((string= a "--year") (setf year (number-arg (pop args) "the year")))
+                     (title (setf title (format nil "~a ~a" title a)))
+                     (t (setf title a)))))
+    (unless title (usage))
+    (setup)
+    (unless *key* (error "no api key to ask jellyfin with"))
+    (let ((found (remote-search (if film :film :show) title year)))
+      (cond ((eq found :unreachable) (error "jellyfin didn't answer"))
+            ((null found) (say "tmdb knows no ~:[show~;film~] ~a" film title))
+            (t (loop for (id name y) in found
+                     do (say "~8a ~:[    ~;~:*~d~]  ~a  https://www.themoviedb.org/~:[tv~;movie~]/~a"
+                             id y name film id)))))))
+
+;;; resolve: a dry run of one file or folder, which says why
+
+(defun reading (guess)
+  "What guessit read, briefly."
+  (format nil "~{~a~^, ~}"
+          (loop for k in '("type" "title" "alternative_title" "year" "season" "episode" "part"
+                           "episode_title" "subtitle_language" "release_group")
+                for v = (gethash k guess)
+                when (and v (not (eq v 'null)))
+                  collect (format nil "~a ~a" k (jzon:stringify v)))))
+
+(defun rule-source (rule)
+  (if (member rule *cli-rules* :test #'eq) "the command line's" "nix's"))
+
+(defun links-to ()
+  "Every link's target, to the links to it."
+  (let ((to (make-hash-table :test 'equal)))
+    (loop for (link . target) in (all-links) do (push link (gethash target to)))
+    to))
+
+(defun resolve-video (files links seconds)
+  (multiple-value-bind (guesses alones) (guess files)
+    (let ((shows (folders *shows*)) (films (folders *films*))
+          (run (make-run)) (dests (make-hash-table :test 'equal))
+          ;; and where each goes
+          (dests-of (make-hash-table :test 'equal)))
+      (loop for f in files and g in guesses and a in alones
+            do (say "~a" f)
+               (say "  guessit reads ~a" (reading g))
+               (say "  its name alone ~a" (reading a))
+               (let ((rule (rule-for f)) (preference (preference f)))
+                 (dolist (r (remove-duplicates (remove nil (list rule preference))))
+                   (say "  rule, ~a: ~a" (rule-source r) (rule-string r)))
+                 (unless rule
+                   (let ((kind (reads-as g)) won)
+                     (when kind
+                       (dolist (c (titles g a))
+                         (let ((found (identify kind (first c) (second c))))
+                           (say "  tmdb ~(~a~) ~a~@[ (~d)~]: ~a~:[~; <- this~]"
+                                kind (first c) (second c)
+                                (cond ((consp found) (format nil "~a, ~a~@[ (~d)~]"
+                                                             (first found) (second found) (third found)))
+                                      ((eq found :none) "unknown")
+                                      (t "jellyfin didn't answer"))
+                                (and (consp found) (not won) (setf won t)))))))))
+               (multiple-value-bind (stem key) (place f g a shows films)
+                 (cond ((eq key :ignored) (say "  ignored"))
+                       ((eq key :defer) (say "  waits until jellyfin answers"))
+                       ((null stem) (say "  left alone: ~a" key))
+                       (t (let* ((language (field g "subtitle_language"))
+                                 (dest (if (member (extension f) +subtitles+ :test #'string=)
+                                           (format nil "~a~@[.~a~].~a" stem (and (stringp language) language)
+                                                   (extension f))
+                                           (format nil "~a.~a" stem (extension f))))
+                                 (there (linked-to run dest))
+                                 (before (gethash dest dests)))
+                            (say "  goes to ~a" dest)
+                            (cond (before (say "  where ~a goes too" before))
+                                  ((null there) (say "  which is free"))
+                                  ((equal there f) (say "  which links to it already"))
+                                  ((eq there :taken) (say "  where a file is, so it's left alone"))
+                                  ((member (extension f) +subtitles+ :test #'string=)
+                                   (say "  where ~a is linked" there))
+                                  (t (multiple-value-bind (win why) (wins f there)
+                                       (say "  where ~a is linked; ~:[that stays~;this wins~]: ~a"
+                                            there win why))))
+                            (setf (gethash dest dests) f (gethash f dests-of) dest)))))
+               (let ((now (remove (gethash f dests-of) (gethash f links) :test #'equal))
+                     (second (assoc f seconds :test #'equal)))
+                 (when now
+                   (say "  linked now from ~{~a~^, ~}~%  (a run passes over what's linked: odos relink places it again)" now))
+                 (when second
+                   (say "  kept out for the copy linked at ~a" (second second))))))))
+
+(defun resolve-shelf (files links)
+  (let ((indexes (make-hash-table :test 'equal)))
+    (dolist (f files)
+      (say "~a" f)
+      (let* ((shelf (shelf-of f))
+             (rule (rule-for f))
+             (series (shelf-series f shelf)))
+        (when rule (say "  rule, ~a: ~a" (rule-source rule) (rule-string rule)))
+        (cond ((says rule :ignore) (say "  ignored"))
+              ((null series) (say "  left alone: no series in its name or its folders'"))
+              (t (let* ((library (cdr shelf))
+                        (index (or (gethash library indexes)
+                                   (setf (gethash library indexes) (folders library))))
+                        (dest (join (join library (or (gethash (fold series) index) series))
+                                    (basename f))))
+                   (say "  series ~a, goes to ~a" series dest)
+                   (case (kind dest)
+                     ((nil) (say "  which is free"))
+                     (:link (unless (equal (target dest) f)
+                              (say "  where ~a is linked, so it's left alone" (target dest))))
+                     (t (say "  where a file is, so it's left alone"))))))
+        ;; but where it goes, which keeps its name
+        (let ((now (remove (basename f) (gethash f links) :key #'basename :test #'string=)))
+          (when now (say "  linked now from ~{~a~^, ~}" now)))))))
+
+(defun cmd-resolve (args)
+  "resolve PATH: what a run would make of a file or a folder's files, and why."
+  (let* ((path (existing (or (pop args) (usage))))
+         (*dry-run* t)
+         (shelf (shelf-of path))
+         (files (if (eq (kind path) :directory)
+                    (let (found)
+                      (walk path (lambda (p kind)
+                                   (when (and (eq kind :file)
+                                              (member (extension p)
+                                                      (if shelf +shelf-files+ (append +videos+ +subtitles+))
+                                                      :test #'string=)
+                                              (or shelf (not (search "/sample" (string-downcase p)))))
+                                     (push p found))))
+                      (nreverse found))
+                    (list path))))
+    (rule-path path)
+    (setup)
+    (unless *key* (say "no api key: shows and films are named by guessit alone"))
+    (unless files (say "no ~:[videos or subtitles~;files of a shelf's kinds~] under ~a" shelf path))
+    (when files
+      (if shelf
+          (resolve-shelf files (links-to))
+          (resolve-video files (links-to) (settled (read-seconds)))))))
+
+(defun usage (&optional (code 64))
+  (format (if (zerop code) *standard-output* *error-output*) "usage: odos [flags] [command]
+
+  (none)                       a run: link what isn't linked
+  list [--tmdb ID | --path P]  what's linked, by show, film or series
+  unsure                       what the last run left alone, and why
+  resolve PATH                 what a run would make of a file or folder, and why
+  search TITLE [--film] [--year Y]
+                               what tmdb finds, through jellyfin
+  show PATH [tmdb] ID [season N [offset K]]
+                               a folder or file is that show
+  film PATH [tmdb] ID          ... that film
+  episode FILE [tmdb] ID SEASON EP
+                               a file is that episode
+  series PATH NAME             a shelf's folder or file is that series
+  ignore PATH                  never link it
+  prefer PATH                  its copies win over others of the same episode or film
+  relink PATH                  unlink it, and link it again
+  rules [--nix]                the rules, or the command line's as nix
+  forget RULE                  undo the command line's rules for a path
+
+flags: --dry-run --video DIR --links DIR --shows DIR --films DIR --state DIR
+       --spool DIR --jellyfin URL --key-file FILE --rules FILE
+       --shelf TREE:LIBRARY... --service UNIT~%")
+  (uiop:quit code))
+
+(defparameter +flags+
+  '(("--video" . *video*) ("--links" . *links*) ("--shows" . *shows*) ("--films" . *films*)
+    ("--state" . *state*) ("--spool" . *spool*) ("--jellyfin" . *jellyfin*)
+    ("--key-file" . *key-file*) ("--rules" . *rules-file*) ("--service" . *service*)))
+
+(defun command (words)
+  "Does what WORDS say. True unless a run owes jellyfin something."
+  (let ((name (pop words)))
+    (cond ((null name)
+           ;; a run from the command line is the service's, as its user
+           (if (and *service* (not *dry-run*)) (progn (rerun) t) (odos)))
+          ((string= name "list") (cmd-list words) t)
+          ((string= name "unsure") (when words (usage)) (cmd-unsure) t)
+          ((string= name "resolve") (cmd-resolve words) t)
+          ((string= name "search") (cmd-search words) t)
+          ((string= name "show") (cmd-place :show words) t)
+          ((string= name "film") (cmd-place :film words) t)
+          ((string= name "episode") (cmd-place :episode words) t)
+          ((string= name "series") (cmd-series words) t)
+          ((string= name "ignore") (cmd-ignore words) t)
+          ((string= name "prefer") (cmd-prefer words) t)
+          ((string= name "relink") (cmd-relink words) t)
+          ((string= name "rules") (cmd-rules words) t)
+          ((string= name "forget") (cmd-forget words) t)
+          ((member name '("help" "--help" "-h") :test #'string=) (usage 0))
+          (t (usage)))))
 
 (defun main ()
   (setf sb-alien::*default-c-string-external-format* :utf-8
         sb-impl::*default-external-format* :utf-8)
-  (let ((args (rest sb-ext:*posix-argv*)))
+  (let ((args (rest sb-ext:*posix-argv*)) words)
+    ;; flags anywhere; the rest is the command, in order
     (loop while args
-          do (let ((flag (pop args)))
-               (if (string= flag "--dry-run")
-                   (setf *dry-run* t)
-                   (let ((value (or (pop args) (usage))))
-                     (cond ((string= flag "--video") (setf *video* value))
-                           ((string= flag "--shelf")
-                            (let ((colon (or (position #\: value) (usage))))
-                              (setf *shelves* (append *shelves* (list (cons (subseq value 0 colon)
-                                                                            (subseq value (1+ colon))))))))
-                           ((string= flag "--links") (setf *links* value))
-                           ((string= flag "--shows") (setf *shows* value))
-                           ((string= flag "--films") (setf *films* value))
-                           ((string= flag "--state") (setf *state* value))
-                           ((string= flag "--spool") (setf *spool* value))
-                           ((string= flag "--jellyfin") (setf *jellyfin* value))
-                           ((string= flag "--key-file") (setf *key-file* value))
-                           ((string= flag "--rules") (setf *rules-file* value))
-                           (t (usage))))))))
-  (handler-case (uiop:quit (if (odos) 0 75))
-    (error (e)
-      (format *error-output* "odos: ~a~%" e)
-      (uiop:quit 1))))
+          do (let* ((word (pop args)) (flag (assoc word +flags+ :test #'string=)))
+               (cond ((string= word "--dry-run") (setf *dry-run* t))
+                     ((string= word "--shelf")
+                      (let* ((value (or (pop args) (usage)))
+                             (colon (or (position #\: value) (usage))))
+                        (setf *shelves* (append *shelves* (list (cons (subseq value 0 colon)
+                                                                      (subseq value (1+ colon))))))))
+                     (flag (setf (symbol-value (cdr flag)) (or (pop args) (usage))))
+                     (t (push word words)))))
+    (handler-case (uiop:quit (if (command (nreverse words)) 0 75))
+      (error (e)
+        (format *error-output* "odos: ~a~%" e)
+        (uiop:quit 1)))))

@@ -229,8 +229,8 @@ switched to, so a rewrite stops deploys until its state is fixed by hand.
   are recorded in `/var/lib/odos/seconds` and not read again while the
   winner stays linked; if it goes, they compete again.
   Runs on qBittorrent's run-on-finish (a marker in `/run/odos`, through a path
-  unit), daily, and by hand with `systemctl start odos`; `odos --dry-run`
-  shows what it would do. It tells Jellyfin which folders changed with the
+  unit), daily, and by hand with `odos` (the service, below); `odos
+  --dry-run` shows what it would do. It tells Jellyfin which folders changed with the
   generated key `crypt.generated.jellyfin-api`, which kino's pre-start
   writes into Jellyfin's `ApiKeys` as `odos`.
   odos also links the shelf's trees for Kavita: each file of
@@ -242,6 +242,19 @@ switched to, so a rewrite stops deploys until its state is fixed by hand.
   `(Digital)`), volumes or chapters (`v01-10`, `c001`, `Vol. 3`, `001-054`);
   what says none waits in `unsure`. A rule `"manga/<path>".series = "Name";`
   (paths under /srv/seed) says it instead.
+  Misses at TMDb are cached for a day, hits for good.
+  `odos` on lemma0 is its command line, for root (it sudoes itself):
+  `list`, `unsure`, `resolve PATH` (a dry run of one file or folder that
+  says why: guessit's readings, the rule, TMDb's candidates, where it goes
+  and what it would beat), `search TITLE`, and rules made there rather than
+  in Nix: `show`, `film`, `episode`, `series`, `ignore`, `prefer`, kept in
+  `/var/lib/odos/rules` and holding over Nix's for the same path; `rules
+  --nix` prints them for `odos-rules.nix`, `forget` drops one, `relink`
+  re-places a path without a rule. A change unlinks what it holds and
+  starts the service, whose output it shows; a run and a change take a
+  lock on `/var/lib/odos`, so neither undoes the other. `odos help` lists
+  them. A rule added in Nix doesn't move what's linked already: `odos
+  relink PATH` after deploying it.
 - soju (`lemma/irc.nix`): an IRC bouncer at irc.amartia.online:6697 (TLS,
   caddy's certificate, copied in and reloaded on renewal) for the lldap
   group `irc`. soju's `auth http` asks a loopback Caddy site, which asks

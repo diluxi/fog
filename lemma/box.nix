@@ -30,6 +30,10 @@
 		# kavita's, links into the shelf's trees
 		shelf = { at = "/srv/shelf"; owner = "0:${toString gid.shelf}";
 			modes = [ "file_mode=0660" "dir_mode=0770" ]; };
+		# paperless's documents (lemma/paper.nix), its own and nobody else's
+		paper = { at = "/srv/paper";
+			owner = "${toString config.ids.uids.paperless}:${toString config.ids.gids.paperless}";
+			modes = [ "file_mode=0600" "dir_mode=0700" ]; };
 	} // lib.genAttrs [ "manga" "comics" "books" ] (kind: {
 		# what kavita reads (lemma/shelf.nix), each kind its own tree, readable
 		# by shelf and by nobody else, as video is by kino

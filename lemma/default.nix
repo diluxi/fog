@@ -9,6 +9,7 @@
 		./kino.nix
 		./shelf.nix
 		./komf.nix
+		./paper.nix
 		./odos.nix
 		./box.nix
 		./xmpp.nix

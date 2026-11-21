@@ -296,6 +296,21 @@ switched to, so a rewrite stops deploys until its state is fixed by hand.
   Komf listens on every address with no login, so an nftables table of
   its own drops port 8085 unless it comes from loopback or the admin
   role's `fog-admin` (its UI at http://10.10.1.1:8085).
+- paperless-ngx 3.3 (`lemma/paper.nix`, NixOS's module) at
+  paper.amartia.online, for the lldap group `paper` (invitable) with a
+  second factor. Documents live on witness0 in a tree of their own,
+  `/srv/paper` (paperless's uid, 0700), the database (SQLite), index and
+  consume folder in /var/lib/paperless. Logins go through Authelia's OIDC
+  (client `paperless`, allauth's openid_connect provider `authelia`, PKCE,
+  `client_secret_basic`); the provider JSON with its secret is written at
+  start into /run/paperless-oidc/env by `paperless-oidc`. A first login
+  makes the account; the login page goes straight to Authelia. Each login
+  sets the account's groups to lldap's that paperless has: `paper`, which
+  `paperless-groups` declares at every start with every permission of
+  documents and mail plus seeing users and groups (for sharing), and
+  `lldap_admin` makes a superuser. fog is the local superuser for when
+  Authelia is away (`crypt.generated.paperless-admin`). OCR in German and
+  English; no Tika or Gotenberg, so no office documents.
 
 ### Next, as agreed
 

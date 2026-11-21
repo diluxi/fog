@@ -53,6 +53,14 @@
 		options = [
 			"credentials=${credentials}"
 			"vers=3.1.1" "seal" "mfsymlinks" "iocharset=utf8"
+			# a megabyte a request at most. sealing allocates, per request,
+			# one buffer with a 32-byte scatterlist entry for each page, and
+			# needs it contiguous: at the default 4 mib that's 64 kib (order
+			# 4), which the kernel gives up on once memory is fragmented, so
+			# writes came back as eio and torrents stopped in error. at 1 mib
+			# it's 16 kib, which the kernel reclaims for. sequential writes
+			# ran at 266 mb/s at 4 mib, far above what anything here asks
+			"rsize=1048576" "wsize=1048576"
 			"uid=0" "gid=0"
 			"_netdev" "nofail" "x-systemd.mount-timeout=30s"
 			"x-systemd.requires=witness0-dirs.service" "x-systemd.after=witness0-dirs.service"

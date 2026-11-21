@@ -32,6 +32,8 @@
 	};
 
 	units = [ "paperless-web" "paperless-scheduler" "paperless-consumer" "paperless-task-queue" ];
+	# and the module's key generator, which reads the environment file too
+	readers = units ++ [ "paperless-secret-key" ];
 
 	# what an account may do is its groups': `paper` may do everything with
 	# documents, mail and their kinds, and see who there is to share with;
@@ -89,16 +91,17 @@ in {
 		'';
 	};
 
-	systemd.services = lib.genAttrs units (_: {
+	systemd.services = lib.recursiveUpdate (lib.genAttrs readers (_: {
 		requires = [ "paperless-oidc.service" ];
 		after = [ "paperless-oidc.service" ];
+	})) (lib.genAttrs units (_: {
 		unitConfig.RequiresMountsFor = [ media ];
-	}) // {
+	})) // {
 		# the providers' json with the secret in it, as an environment file
 		# every paperless unit reads. alphanumeric, so single quotes hold it
 		paperless-oidc = {
 			description = "paperless's authelia login, with its secret";
-			before = map (u: "${u}.service") units;
+			before = map (u: "${u}.service") readers;
 			serviceConfig = {
 				Type = "oneshot";
 				RemainAfterExit = true;

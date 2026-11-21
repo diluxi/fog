@@ -113,16 +113,16 @@ in {
 		// lib.mapAttrs' (name: t: lib.nameValuePair t.at (plain name t)) trees;
 
 	# a mount of a directory needs it to exist on the box first. the plain
-	# directories the first version of this made go, if they're still empty
+	# directories the first version of this made go, if they're still empty.
+	# it runs for each mount that starts, not once a boot: a tree added
+	# later is mounted by a switch, which wouldn't run it again if it stayed
+	# active
 	systemd.services.witness0-dirs = {
 		description = "directories on witness0 for /srv";
 		after = [ "network-online.target" ];
 		wants = [ "network-online.target" ];
 		path = with pkgs; [ cifs-utils util-linux coreutils ];
-		serviceConfig = {
-			Type = "oneshot";
-			RemainAfterExit = true;
-		};
+		serviceConfig.Type = "oneshot";
 		script = ''
 			dir=$(mktemp -d)
 			mount -t cifs ${share} "$dir" -o credentials=${credentials},vers=3.1.1,seal
@@ -132,15 +132,13 @@ in {
 		'';
 	};
 
-	# each tree becomes a gocryptfs directory the first time, with the key
+	# each tree becomes a gocryptfs directory the first time, with the key.
+	# for each mount that starts too, so a new tree gets initialized
 	systemd.services.witness0-init = {
 		description = "gocryptfs directories on witness0";
 		unitConfig.RequiresMountsFor = map (n: "${cipher}/${n}") (lib.attrNames trees);
 		path = [ pkgs.gocryptfs ];
-		serviceConfig = {
-			Type = "oneshot";
-			RemainAfterExit = true;
-		};
+		serviceConfig.Type = "oneshot";
 		script = lib.concatMapStrings (n: ''
 			if [ ! -e ${cipher}/${n}/gocryptfs.conf ]; then
 				echo "making ${n} a gocryptfs directory"

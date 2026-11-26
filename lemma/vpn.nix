@@ -227,7 +227,7 @@ in {
 
 		vpn.roles.buffet = {
 			n = 11;
-			user = buffet;
+			user = "buffet";
 			mesh = true;
 			label = "buffet";
 		};

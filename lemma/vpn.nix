@@ -7,7 +7,8 @@
 	ldap = config.services.lldap.settings;
 	baseDN = ldap.ldap_base_dn;
 	group = name: "cn=${name},ou=groups,${baseDN}";
-	member = r: "(memberOf=${group r.group})";
+	# who a role is for: its user, or the members of its group
+	member = r: if r.user != null then "(uid=${r.user})" else "(memberOf=${group r.group})";
 	account = config.lldap.serviceAccounts.wg-portal;
 	generated = name: config.crypt.generated.${name}.path;
 
@@ -114,7 +115,7 @@
 	});
 
 	# each role's interface as wg-portal's api takes it, with the key added at
-	# run time. peers reach lemma0's address on it and nothing beyond
+	# run time. peers reach lemma0's address on it, and in a mesh each other
 	interface = r: {
 		Identifier = r.interface;
 		DisplayName = r.label;
@@ -127,14 +128,17 @@
 		SaveConfig = false;
 		PeerDefNetwork = [ "${v4 r}.0/24" "${v6 r}::/64" ];
 		PeerDefEndpoint = "${host}:${toString r.port}";
-		PeerDefAllowedIPs = [ "${v4 r}.1/32" "${v6 r}::1/128" ];
+		PeerDefAllowedIPs = if r.mesh
+			then [ "${v4 r}.0/24" "${v6 r}::/64" ]
+			else [ "${v4 r}.1/32" "${v6 r}::1/128" ];
 	};
 in {
 	options.vpn.roles = lib.mkOption {
 		description = ''
 			lemma0's vpn, one wireguard interface per role, which wg-portal
 			owns along with its peers. who may add peers to a role is an lldap
-			group; what the peers reach is the firewall, by interface.
+			group, or one user's own network; what the peers reach is the
+			firewall, by interface.
 		'';
 		default = {};
 		type = lib.types.attrsOf (lib.types.submodule ({ name, config, ... }: {
@@ -145,7 +149,26 @@ in {
 				};
 				group = lib.mkOption {
 					description = "The lldap group whose members may add peers.";
-					type = lib.types.str;
+					type = lib.types.nullOr lib.types.str;
+					default = null;
+				};
+				user = lib.mkOption {
+					description = ''
+						The lldap user whose role this is alone, instead of a group's:
+						a network of their own devices.
+					'';
+					type = lib.types.nullOr lib.types.str;
+					default = null;
+				};
+				mesh = lib.mkOption {
+					description = ''
+						Whether the peers reach each other, through lemma0: their configs
+						route the role's whole network, and lemma0 forwards within it.
+						What they reach on lemma0 is still only `tcp`, or everything if
+						`trusted`.
+					'';
+					type = lib.types.bool;
+					default = false;
 				};
 				label = lib.mkOption { type = lib.types.str; };
 				trusted = lib.mkOption {
@@ -184,10 +207,16 @@ in {
 				assertion = lib.allUnique (lib.mapAttrsToList (_: r: r.n) cfg.roles);
 				message = "vpn.roles: each role needs its own n";
 			}
-		] ++ lib.mapAttrsToList (_: r: {
-			assertion = lib.stringLength r.interface <= 15;
-			message = "vpn.roles: ${r.interface} is longer than an interface name may be";
-		}) cfg.roles;
+		] ++ lib.concatLists (lib.mapAttrsToList (name: r: [
+			{
+				assertion = lib.stringLength r.interface <= 15;
+				message = "vpn.roles: ${r.interface} is longer than an interface name may be";
+			}
+			{
+				assertion = (r.group == null) != (r.user == null);
+				message = "vpn.roles.${name}: a role is either a group's or a user's";
+			}
+		]) cfg.roles);
 
 		vpn.roles.admin = {
 			n = 1;
@@ -304,6 +333,11 @@ in {
 			interfaces = lib.mapAttrs' (_: r: lib.nameValuePair r.interface {
 				allowedTCPPorts = r.tcp;
 			}) (lib.filterAttrs (_: r: !r.trusted) cfg.roles);
+			# a mesh's peers to each other, and nowhere else through lemma0
+			extraForwardRules = let meshes = lib.filterAttrs (_: r: r.mesh) cfg.roles; in
+				lib.mkIf (meshes != {}) (lib.concatMapStrings (r: ''
+					iifname "${r.interface}" oifname "${r.interface}" accept
+				'') (lib.attrValues meshes));
 		};
 
 		services.authelia.instances.main.settings.identity_providers.oidc = {
@@ -311,7 +345,8 @@ in {
 				default_policy = "deny";
 				rules = [{
 					policy = "two_factor";
-					subject = lib.mapAttrsToList (_: r: "group:${r.group}") cfg.roles;
+					subject = lib.mapAttrsToList (_: r:
+						if r.user != null then "user:${r.user}" else "group:${r.group}") cfg.roles;
 				}];
 			};
 			clients = [{

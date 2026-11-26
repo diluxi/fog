@@ -187,7 +187,13 @@ switched to, so a rewrite stops deploys until its state is fixed by hand.
   through wg-portal's API, with keys from `crypt.generated.vpn-fog-<name>`.
   Roles: `admin` (lldap_admin, everything, at 10.10.1.1), `torrent` (the
   qBittorrent's API on 9092, prowlarr on 9697) and `ssh` (port 22, for the
-  lldap group `ssh`). `fog` and `dn42` stay networkd's.
+  lldap group `ssh`). A role can instead be one lldap user's (`user`
+  rather than `group`): a network of their own devices, which only they
+  can add peers to and log in to wg-portal for. With `mesh`, its peers
+  reach each other through lemma0 (their configs route the role's whole
+  /24 and /64, and the firewall forwards within the interface); what
+  they reach on lemma0 is still only `tcp` (nothing by default). `fog`
+  and `dn42` stay networkd's.
 - sshd is only reachable over the VPN (since 2026-11-16), keys only, no
   keyboard-interactive. `fog`'s default host is 10.10.1.1, the admin role's
   address; `FOG_HOST` overrides it. If the VPN breaks, log in on Hetzner's

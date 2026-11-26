@@ -225,6 +225,13 @@ in {
 			trusted = true;
 		};
 
+		vpn.roles.buffet = {
+			n = 11;
+			user = buffet;
+			mesh = true;
+			label = "buffet";
+		};
+
 		lldap.serviceAccounts.wg-portal.groups = [ "lldap_strict_readonly" ];
 
 		crypt.generated = {

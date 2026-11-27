@@ -1,0 +1,15 @@
+; 9cule.space, as fog.tofu hands it to hetzner. hetzner keeps the SOA and NS.
+; one record per line: owner [ttl] [IN] type value, owners relative to the
+; zone or @. no $ORIGIN, no parentheses, and comments only on lines of
+; their own. a name with any record of its own hides the wildcard, so give
+; it its addresses too
+
+; lemma1, 9front (lemma1/)
+@                   A     89.167.72.44
+@                   AAAA  2a01:4f9:c015:94dc::1
+*                   A     89.167.72.44
+*                   AAAA  2a01:4f9:c015:94dc::1
+
+; no mail here, and nobody may claim otherwise
+@                   TXT   "v=spf1 -all"
+_dmarc              TXT   "v=DMARC1; p=reject"

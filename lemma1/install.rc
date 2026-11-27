@@ -1,0 +1,92 @@
+#!/bin/rc
+# lemma1's installation, run by lemma1/default.nix in the release's own
+# image, booted as a terminal on a serial console with lemma1's disk as
+# /dev/sd01 and this directory as /n/9fat/fog. what rc/bin/inst would do
+# with its defaults (mbr, gefs, 9fat on its own partition), but asked
+# nothing, and with lemma1's configuration copied in from fog/
+
+rfork e
+flag e +
+fog=/n/9fat/fog
+disk=/dev/sd01
+fs=$disk/fs
+sname=gefs.newfs
+
+# the plan 9 partition over the whole disk, with mbr and the standard
+# subdivision, for gefs: 9fat, nvram, fs
+disk/mbr -m /386/mbr $disk/data
+disk/fdisk -baw $disk/data
+disk/fdisk -p $disk/data >$disk/ctl
+disk/prep -bw -a^(9fat nvram fs) $disk/plan9
+disk/prep -p $disk/plan9 >$disk/ctl
+
+# gefs, as inst/mountgefs makes it: reamed with glenda in adm, a dataset
+# `other` for what isn't kept (tmp), and the users file
+gefs -n $sname -r glenda -A -SAf $fs
+gefs -n $sname -A -SAf $fs
+mount -c /srv/$sname /n/newfs %main
+mount -c /srv/$sname /n/newfs.adm %adm
+echo fork empty other >/n/newfs.adm/ctl
+echo retain other none >/n/newfs.adm/ctl
+mount -c /srv/$sname /n/newfs.other %other
+cp $fog/users /n/newfs.adm/users
+echo sync >/n/newfs.adm/ctl
+echo users >/n/newfs.adm/ctl
+for(dir in adm dist usr){
+	mkdir /n/newfs/$dir
+	g=sys
+	if(~ $dir adm)
+		g=adm
+	chgrp $g /n/newfs/$dir
+	chgrp -u $g /n/newfs/$dir
+}
+
+# the system: the release's own root, as inst/copydist copies /n/dist
+disk/mkfs -z 16372 -U -s /root -d /n/newfs /sys/lib/sysconfig/proto/allproto
+
+# lemma1's configuration. gefs reads its users from %adm; /adm/users is
+# what the release had, and would say otherwise
+cp $fog/users /n/newfs/adm/users
+cat $fog/ndb >>/n/newfs/lib/ndb/local
+mkdir -p /n/newfs/cfg/lemma1
+cp $fog/cpurc /n/newfs/cfg/lemma1/cpurc
+
+# each user's home, as /sys/lib/newuser makes it when they first log in,
+# and their tmp in `other`, as inst/mountgefs makes glenda's
+for(u in `{cat $fog/homes}){
+	home=/n/newfs/usr/$u
+	if(! test -d $home){
+		mkdir -p $home /n/newfs.other/usr/$u/tmp
+		sed -e 's/^user=.*/user='$u'/' -e 's,^home=.*,home='$home',' \
+			-e '/^(bind -q?c |mail -c|auth\/cron -c|\. lib\/profile)/d' \
+			/sys/lib/newuser >/tmp/newuser
+		rc /tmp/newuser
+		chmod 700 /n/newfs.other/usr/$u^('' /tmp)
+		chgrp -u $u /n/newfs.other/usr/$u^('' /tmp)
+		chgrp $u /n/newfs.other/usr/$u^('' /tmp)
+		for(f in `{walk $home})
+			chgrp -u $u $f && chgrp $u $f
+	}
+}
+
+echo sync >/n/newfs.adm/ctl
+unmount /n/newfs.other
+unmount /n/newfs.adm
+unmount /n/newfs
+echo halt >>/srv/$sname.cmd
+
+# booting: the 9fat as inst/bootsetup makes it, with lemma1's plan9.ini,
+# and the plan 9 partition active
+disk/format -r 2 -d -b /386/pbs -l PLAN9 $disk/9fat
+dossrv -f $disk/9fat fat
+mount -c /srv/fat /n/fat
+cp /386/9bootfat /n/fat/9bootfat
+chmod +al /n/fat/9bootfat
+cp $fog/plan9.ini /n/fat/plan9.ini
+cp /amd64/9pc64 /n/fat/9pc64
+unmount /n/fat
+rm -f /srv/fat
+p9=`{disk/fdisk $disk/data </dev/null >[2]/dev/null | grep PLAN9 | sed 1q | sed 's/ *(p.) .*/\1/'}
+{ echo 'A '^$p9; echo w } | disk/fdisk $disk/data >/dev/null >[2=1]
+
+echo fog: installed

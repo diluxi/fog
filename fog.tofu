@@ -61,6 +61,75 @@ resource "hcloud_server" "lemma0" {
 	}
 }
 
+# lemma1: 9front (lemma1/), a cpx02 in hel1, made in hetzner's console with
+# its addresses and imported. its disk is lemma1's image (`fog 9 deploy`),
+# written from the rescue system, so the image it was made with means
+# nothing; changing it would replace the server
+import {
+	to = hcloud_primary_ip.dew1
+	id = "165182838"
+}
+
+import {
+	to = hcloud_primary_ip.dew1_4
+	id = "165182837"
+}
+
+import {
+	to = hcloud_server.lemma1
+	id = "177735960"
+}
+
+resource "hcloud_primary_ip" "dew1" {
+	location = "hel1"
+	name = "dew1"
+	type = "ipv6"
+	assignee_type = "server"
+	auto_delete = false
+	lifecycle { prevent_destroy = true }
+}
+
+resource "hcloud_primary_ip" "dew1_4" {
+	location = "hel1"
+	name = "dew1_4"
+	type = "ipv4"
+	assignee_type = "server"
+	auto_delete = false
+	lifecycle { prevent_destroy = true }
+}
+
+resource "hcloud_server" "lemma1" {
+	location = "hel1"
+	name = "lemma1h"
+	server_type = "cpx02"
+	public_net {
+		ipv6_enabled = true
+		ipv6 = hcloud_primary_ip.dew1.id
+		ipv4_enabled = true
+		ipv4 = hcloud_primary_ip.dew1_4.id
+	}
+	lifecycle {
+		ignore_changes = [image, ssh_keys, user_data]
+		prevent_destroy = true
+	}
+}
+
+# what `fog 9 deploy` asks hetzner's rescue system to let in: lux's first key
+resource "hcloud_ssh_key" "lux" {
+	name = "lux"
+	public_key = jsondecode(file("${path.module}/users/keys.json")).lux[0]
+}
+
+# what `fog 9 deploy` needs of hetzner
+output "lemma1" {
+	value = {
+		id = hcloud_server.lemma1.id
+		ipv4 = hcloud_primary_ip.dew1_4.ip_address
+		ipv6 = cidrhost(hcloud_primary_ip.dew1.ip_network, 1)
+		ssh_key = hcloud_ssh_key.lux.id
+	}
+}
+
 # witness0: storage for lemma0, which has 80GB of its own. storage boxes only
 # exist in fsn1 and hel1; nbg1 is a few milliseconds away. the box's own
 # account reaches nothing; lemma0 mounts through a subaccount that only sees
@@ -188,6 +257,18 @@ resource "hcloud_rdns" "ipv6" {
 	primary_ip_id = hcloud_primary_ip.dew0.id
 	ip_address = local.ipv6
 	dns_ptr = trimsuffix(local.mx, ".")
+}
+
+resource "hcloud_rdns" "lemma1_ipv4" {
+	primary_ip_id = hcloud_primary_ip.dew1_4.id
+	ip_address = hcloud_primary_ip.dew1_4.ip_address
+	dns_ptr = "9cule.space"
+}
+
+resource "hcloud_rdns" "lemma1_ipv6" {
+	primary_ip_id = hcloud_primary_ip.dew1.id
+	ip_address = cidrhost(hcloud_primary_ip.dew1.ip_network, 1)
+	dns_ptr = "9cule.space"
 }
 
 # set these at namecheap (domain → nameservers → custom dns) once applied

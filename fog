@@ -16,6 +16,7 @@ $0 sites [rollback <host>]
 $0 pin <name> <owner/repo> <branch>
 $0 tofu ...
 $0 witness
+$0 9 pin|build|deploy [-n]
 
 -l builds locally and copies the closure to $HOST, whose
    nix-daemon substitutes whatever cache.nixos.org already has
@@ -28,6 +29,11 @@ witness writes where lemma0 mounts witness0 (lemma/witness0.json) and its
 credentials, encrypted to lemma0 and lux (lemma/witness0.asc), from tofu's
 state after an apply, and once, the key everything on witness0 is encrypted
 with (lemma/witness0-key.asc); commit them. losing that key loses witness0
+
+9 is lemma1, 9front (lemma1/): pin pins the latest release, build builds
+its image, and deploy gives the image its keys, with passwords from p's
+space/9cule/<user>, and writes it to lemma1's disk from hetzner's rescue
+system, erasing it; -n leaves the image with its keys in ./lemma1.raw
 EOF
 	exit 1
 }
@@ -127,6 +133,39 @@ witness() {
 	echo "wrote lemma/witness0.json and lemma/witness0.asc; commit them" >&2
 }
 
+token() {
+	p show com/hetzner | awk '$1=="api:" {print $2}'
+}
+
+# lemma1, 9front (lemma1/default.nix)
+nine() {
+	sub=${1-}; [ $# -gt 0 ] && shift
+	case $sub in
+	pin)
+		iso=https://9front.org/iso
+		file=$(curl -sf $iso/ | grep -o '9front-[0-9]*\.amd64\.qcow2\.gz' |
+			sort -t- -k2 -n | tail -n 1)
+		[ -n "$file" ] || { echo "$0: no release at $iso" >&2; exit 1; }
+		release=${file#9front-}; release=${release%%.*}
+		sha256=$(nix-prefetch-url "$iso/$file")
+		jq -n --arg release "$release" --arg url "$iso/$file" --arg sha256 "$sha256" \
+			'{$release, $url, $sha256}' >"$DIR/lemma1/9front.json"
+		;;
+	build) nix-build "$DIR/lemma1" -A image --no-out-link ;;
+	deploy)
+		image=$(nix-build "$DIR/lemma1" -A image --no-out-link)
+		deploy=$(nix-build "$DIR/lemma1" -A deploy --no-out-link)
+		if [ "${1-}" = -n ]; then
+			"$deploy/bin/fog-9-deploy" -n "$image"
+		else
+			HCLOUD_TOKEN=$(token) LEMMA1=$(tofu -chdir="$DIR" output -json lemma1) \
+				"$deploy/bin/fog-9-deploy" "$image"
+		fi
+		;;
+	*) usage ;;
+	esac
+}
+
 cmd=${1-}; [ $# -gt 0 ] && shift
 case $cmd in
 build) build "$@"; echo ;;
@@ -137,6 +176,7 @@ publish) publish "$@" ;;
 sites) [ $# -gt 0 ] || set -- list; ssh "ecdo@$HOST" "$@" ;;
 pin) pin "$@" ;;
 witness) witness ;;
-tofu) TF_VAR_hcloud_token=$(p show com/hetzner | awk '$1=="api:" {print $2}') tofu "$@" ;;
+9) nine "$@" ;;
+tofu) TF_VAR_hcloud_token=$(token) tofu "$@" ;;
 *) usage ;;
 esac

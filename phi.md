@@ -318,6 +318,26 @@ switched to, so a rewrite stops deploys until its state is fixed by hand.
   Authelia is away (`crypt.generated.paperless-admin`). OCR in German and
   English; no Tika or Gotenberg, so no office documents.
 
+- lemma1 (`lemma1/`, `fog.tofu`): a cpx02 in hel1 (Hetzner name
+  `lemma1h`, imported) running 9front at 9cule.space, its own cpu and auth
+  server for drawterm (`drawterm -h 9cule.space -a 9cule.space -u lux`;
+  drawterm older than 9front's release hangs at auth, as nixpkgs'
+  2024-10-04 does). `nix-build lemma1 -A image` installs the release pinned
+  in `lemma1/9front.json` (`fog 9 pin`; its qcow2, since 9front.org/iso
+  keeps only the latest) onto a 19000 MiB raw disk: that release booted in
+  qemu+KVM, driven over its serial console (`console.sh`), runs
+  `install.rc`, the installer's steps unasked (mbr, gefs, 9fat), with the
+  users (gefs' `%adm`), `/lib/ndb/local` and `/cfg/lemma1/cpurc` (static
+  addresses; the /32's gateway 172.31.1.1 works off-subnet) from
+  `default.nix`. The image holds no secret. `fog 9 deploy` boots a copy
+  once more to answer the nvram prompts and `auth/changeuser` for glenda
+  (hostowner) and each user, from `p show space/9cule/<user>`, then writes
+  it from Hetzner's rescue system (API via curl; rescue's host key is
+  unverified) and erases the disk; `-n` leaves `./lemma1.raw` instead.
+  After that, lemma1 is managed in place (sysupdate); a deploy reinstalls.
+  9boot can read a file mtools rewrote through its old directory entry,
+  so plan9.ini's console line is switched by one byte in place.
+
 ### Next, as agreed
 
 1. DNS at Hetzner (`fog.tofu`): both zones and rDNS, then the nameservers
